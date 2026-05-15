@@ -18,7 +18,16 @@ const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 
 const forceIcons = process.argv.includes('--force-icons');
-const DATA_URL = 'https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data.json';
+const useFicsmas = process.argv.includes('--ficsmas');
+const useLegacy = process.argv.includes('--legacy-u8');
+
+// Greeny's repo keeps separate dumps for U8 vs 1.0 vs Ficsmas. Default to 1.0.
+const DATA_URL = useLegacy
+  ? 'https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data.json'
+  : useFicsmas
+    ? 'https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data1.0-ficsmas.json'
+    : 'https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data1.0.json';
+console.log(`Source: ${DATA_URL}`);
 
 function run(cmd, label) {
   console.log(`\n▶ ${label}`);

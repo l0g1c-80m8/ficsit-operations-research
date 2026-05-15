@@ -2,7 +2,10 @@
 // a pruned, app-shaped JSON to public/data/satisfactory.json.
 //
 // Drop unused fields, keep only items referenced by machine recipes / raw resources,
-// keep only the 9 production buildings, all 4 generators, all 5 miners.
+// keep only the buildings that recipes produce in (Converter, Quantum Encoder, etc.
+// for 1.0), all generators, all miners.
+//
+// Source: prefers data1.0.json content but accepts data.json for older saves.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -61,16 +64,27 @@ for (const [k, v] of Object.entries(src.buildings)) {
   };
 }
 
-const recipes = machineRecipes.map((r) => ({
-  className: r.className,
-  slug: r.slug,
-  name: r.name,
-  alternate: !!r.alternate,
-  time: r.time,
-  ingredients: r.ingredients,
-  products: r.products,
-  producedIn: r.producedIn,
-}));
+const recipes = machineRecipes.map((r) => {
+  const base = {
+    className: r.className,
+    slug: r.slug,
+    name: r.name,
+    alternate: !!r.alternate,
+    time: r.time,
+    ingredients: r.ingredients,
+    products: r.products,
+    producedIn: r.producedIn,
+  };
+  if (r.isVariablePower) {
+    return {
+      ...base,
+      isVariablePower: true,
+      minPower: r.minPower ?? 0,
+      maxPower: r.maxPower ?? 0,
+    };
+  }
+  return base;
+});
 
 const resources = {};
 for (const [k, v] of Object.entries(src.resources)) {

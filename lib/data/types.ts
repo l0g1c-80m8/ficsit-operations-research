@@ -28,6 +28,13 @@ export interface SatRecipe {
   products: RecipeIO[];
   /** building class names that can run this recipe */
   producedIn: ClassName[];
+  /** true for Converter / Quantum Encoder / Particle Accelerator recipes whose
+   * power draw varies sinusoidally between minPower and maxPower. */
+  isVariablePower?: boolean;
+  /** in MW; only meaningful when isVariablePower */
+  minPower?: number;
+  /** in MW; only meaningful when isVariablePower */
+  maxPower?: number;
 }
 
 export interface SatBuilding {

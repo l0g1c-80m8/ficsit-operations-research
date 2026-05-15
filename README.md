@@ -124,7 +124,15 @@ an outcome FICSIT considers regrettable but foreseeable — retrieve it with:
 
 ```bash
 curl -L -o /tmp/sat-data.json \
-  https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data.json
+  https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data1.0.json
+```
+
+A turnkey procedure for both data and icons is also provided:
+
+```bash
+npm run refresh                  # 1.0 dataset + missing icons
+npm run refresh -- --ficsmas     # Ficsmas-flavored 1.0 dataset
+npm run refresh -- --legacy-u8   # pre-1.0 (Update 8) dataset, no Converter
 ```
 
 ---
@@ -137,7 +145,7 @@ not strictly required by the Pioneer contract, is occasionally tolerated.
 | Subsystem        | Implementation |
 | ---              | --- |
 | Interface        | Next.js 15 (App Router) · TypeScript · Tailwind CSS |
-| Game data        | Community Docs.json export — pruned to 211 machine recipes, 130 items, 18 buildings |
+| Game data        | Community Docs.json export (1.0) — pruned to ~276 machine recipes, 152 items, 20 buildings |
 | Optimization     | `javascript-lp-solver` — linear program over recipe rates |
 | Save parsing    | `@etothepii/satisfactory-file-parser` — executed in-browser |
 | Map              | Embedded community cartographic provider |

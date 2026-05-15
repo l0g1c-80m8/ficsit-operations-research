@@ -115,7 +115,7 @@ export function solveFactory(
       v[`bal_${i.item}`] = (v[`bal_${i.item}`] ?? 0) - ratePerMin(i.amount, time);
     }
     const building = r.producedIn[0];
-    const power = data.buildings[building]?.metadata?.powerConsumption ?? 0;
+    const power = recipePowerKW(r, data);
     v.power = power;
     v.machines = 1;
     v[`bld_${building}`] = 1;
@@ -188,7 +188,7 @@ export function solveFactory(
     const x = result[`x_${idx}`] ?? 0;
     if (x < EPS) return;
     const building = r.producedIn[0];
-    const power = (data.buildings[building]?.metadata?.powerConsumption ?? 0) * x;
+    const power = recipePowerKW(r, data) * x;
     lines.push({
       recipe: r,
       building,
@@ -221,6 +221,18 @@ export function solveFactory(
     consumedInputs,
     objective: result.result ?? 0,
   };
+}
+
+/** MW drawn by one machine running this recipe at 100% clock. For recipes
+ * with variable power (Converter / Quantum Encoder / Particle Accelerator), we
+ * use the time-average (min+max)/2, which is what the in-game load oscillates
+ * around. */
+export function recipePowerKW(r: { isVariablePower?: boolean; minPower?: number; maxPower?: number; producedIn: string[] }, data: SatData): number {
+  if (r.isVariablePower && r.minPower != null && r.maxPower != null) {
+    return (r.minPower + r.maxPower) / 2;
+  }
+  const building = r.producedIn[0];
+  return data.buildings[building]?.metadata?.powerConsumption ?? 0;
 }
 
 function emptyPlan(status: FactoryPlan['status'], message?: string): FactoryPlan {

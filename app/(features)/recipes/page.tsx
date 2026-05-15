@@ -143,7 +143,13 @@ function RecipeCard({ recipe, onOpen }: { recipe: SatRecipe; onOpen: () => void 
               <ItemIcon className={building} kind="building" size={12} /> {bName}
             </Badge>
             <Badge tone="muted">{recipe.time}s</Badge>
-            {power > 0 && <Badge tone="muted">{fmt(power)} MW</Badge>}
+            {recipe.isVariablePower && recipe.minPower != null && recipe.maxPower != null ? (
+              <Badge tone="accent" title="Variable-power recipe — load oscillates between these values">
+                {fmt(recipe.minPower)}–{fmt(recipe.maxPower)} MW
+              </Badge>
+            ) : (
+              power > 0 && <Badge tone="muted">{fmt(power)} MW</Badge>
+            )}
           </div>
         </div>
       </div>

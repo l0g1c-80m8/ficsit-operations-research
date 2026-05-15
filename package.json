@@ -16,15 +16,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
+    "@etothepii/satisfactory-file-parser": "^4.1.1",
+    "clsx": "^2.1.1",
+    "javascript-lp-solver": "^0.4.24",
+    "lucide-react": "^0.460.0",
     "next": "^15.0.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "zustand": "^5.0.2",
-    "lucide-react": "^0.460.0",
-    "clsx": "^2.1.1",
     "tailwind-merge": "^2.5.4",
-    "javascript-lp-solver": "^0.4.24",
-    "@etothepii/satisfactory-file-parser": "^4.1.1"
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

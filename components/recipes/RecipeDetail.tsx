@@ -69,7 +69,13 @@ export function RecipeDetail({
                 {recipe.alternate && <Badge tone="warn">Alternate</Badge>}
                 <Badge tone="muted">{bld?.name ?? building}</Badge>
                 <Badge tone="muted">{recipe.time}s cycle</Badge>
-                {power > 0 && <Badge tone="muted">{fmt(power)} MW</Badge>}
+                {recipe.isVariablePower && recipe.minPower != null && recipe.maxPower != null ? (
+                  <Badge tone="accent" title="Variable-power: load oscillates between these values">
+                    {fmt(recipe.minPower)}–{fmt(recipe.maxPower)} MW
+                  </Badge>
+                ) : (
+                  power > 0 && <Badge tone="muted">{fmt(power)} MW</Badge>
+                )}
               </div>
             </div>
           </div>
@@ -139,7 +145,16 @@ export function RecipeDetail({
                   <div className="flex items-center justify-end gap-1 text-xs text-ficsit-subtle">
                     <Zap className="h-3.5 w-3.5" /> Power
                   </div>
-                  <div className="font-mono text-ficsit-accent">{fmt(power)} MW</div>
+                  {recipe.isVariablePower && recipe.minPower != null && recipe.maxPower != null ? (
+                    <>
+                      <div className="font-mono text-ficsit-accent">
+                        {fmt(recipe.minPower)}–{fmt(recipe.maxPower)} MW
+                      </div>
+                      <div className="text-[10px] text-ficsit-subtle">avg {fmt((recipe.minPower + recipe.maxPower) / 2)} MW</div>
+                    </>
+                  ) : (
+                    <div className="font-mono text-ficsit-accent">{fmt(power)} MW</div>
+                  )}
                 </div>
               </CardBody>
             </Card>

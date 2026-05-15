@@ -52,5 +52,11 @@ function build(targetItem, supplyItem, supplyCap, allowAlternates = false) {
 }
 
 build('Desc_IronPlate_C', 'Desc_OreIron_C', 120, false);
-build('Desc_RotorEM_C', 'Desc_OreIron_C', 240, false);
-build('Desc_ComputerSuper_C', 'Desc_OreIron_C', 240, true); // alternates allowed
+
+// 1.0 sanity: Diamonds from Coal + Time Crystals from Diamonds via Converter.
+console.log('\n--- 1.0 recipes available? ---');
+const has = (name) => recipes.some((r) => r.name === name);
+console.log('  Diamonds:', has('Diamonds'));
+console.log('  Time Crystal:', has('Time Crystal'));
+console.log('  Ficsite Ingot (Iron):', has('Ficsite Ingot (Iron)'));
+console.log('  Dark Matter Residue:', has('Dark Matter Residue'));

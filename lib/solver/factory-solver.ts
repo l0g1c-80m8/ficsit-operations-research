@@ -41,6 +41,10 @@ export interface SolverOptions {
   allowedRecipes?: Set<string>;
   /** whether alternate recipes are permitted */
   includeAlternates?: boolean;
+  /** When true (default), raw resources not explicitly supplied by the user are
+   * treated as unlimited. Set false to force the user to specify every raw
+   * supply (strict mode). */
+  autoSupplyRawResources?: boolean;
 }
 
 export interface FactoryPlanLine {
@@ -66,13 +70,15 @@ export interface FactoryPlan {
 
 const EPS = 1e-6;
 
+const UNLIMITED_SUPPLY = 1_000_000;
+
 export function solveFactory(
   data: SatData,
   supplies: SupplyInput[],
   targets: TargetOutput[],
   options: SolverOptions = {},
 ): FactoryPlan {
-  const { allowedRecipes, includeAlternates = true } = options;
+  const { allowedRecipes, includeAlternates = true, autoSupplyRawResources = true } = options;
 
   const candidateRecipes = data.recipes.filter((r) => {
     if (!includeAlternates && r.alternate) return false;
@@ -83,6 +89,13 @@ export function solveFactory(
   const supplyByItem = new Map<string, number>();
   for (const s of supplies) {
     supplyByItem.set(s.item, (supplyByItem.get(s.item) ?? 0) + s.ratePerMin);
+  }
+
+  // Auto-supply: any raw resource the user didn't constrain is treated as unlimited.
+  if (autoSupplyRawResources) {
+    for (const raw of Object.keys(data.resources)) {
+      if (!supplyByItem.has(raw)) supplyByItem.set(raw, UNLIMITED_SUPPLY);
+    }
   }
   const targetSet = new Map<string, TargetOutput>();
   for (const t of targets) targetSet.set(t.item, t);
@@ -109,8 +122,15 @@ export function solveFactory(
     constraints[`bal_${item}`] = { min: -cap };
   }
 
-  // Recipe variables: net contribution to each item.
-  // Power/machine/building totals are tallied *after* the solve.
+  // Decide objective:
+  //  - If any target has a positive minRatePerMin, treat that as a hard floor and
+  //    MINIMIZE the total machines so we get the smallest factory that meets the
+  //    target. (Users who specify "60 Iron Plate/min" want 60, not 1.5M.)
+  //  - Otherwise MAXIMIZE weighted target production (no rate given → how much
+  //    can I make?).
+  const hasFixedTarget = targets.some((t) => (t.minRatePerMin ?? 0) > 0);
+
+  // Recipe variables: net contribution to each item, plus a machine-cost stamp.
   candidateRecipes.forEach((r, idx) => {
     const v: Record<string, number> = {};
     const time = r.time;
@@ -120,7 +140,7 @@ export function solveFactory(
     for (const i of r.ingredients) {
       v[`bal_${i.item}`] = (v[`bal_${i.item}`] ?? 0) - ratePerMin(i.amount, time);
     }
-    v.obj = 0;
+    v.obj = hasFixedTarget ? 1 : 0;
     variables[`x_${idx}`] = v;
   });
 
@@ -129,7 +149,7 @@ export function solveFactory(
     const key = `produced_${t.item}`;
     variables[key] = {
       [`bal_${t.item}`]: -1,
-      obj: t.weight ?? 1,
+      obj: hasFixedTarget ? 0 : (t.weight ?? 1),
     };
     if (t.minRatePerMin && t.minRatePerMin > 0) {
       constraints[`min_${t.item}`] = { min: t.minRatePerMin };
@@ -139,7 +159,7 @@ export function solveFactory(
 
   const model = {
     optimize: 'obj',
-    opType: 'max' as const,
+    opType: hasFixedTarget ? ('min' as const) : ('max' as const),
     constraints,
     variables,
   };
@@ -181,20 +201,27 @@ export function solveFactory(
     item: t.item,
     ratePerMin: result[`produced_${t.item}`] ?? 0,
   }));
-  // Compute actual raw consumption by summing recipe inputs for raw items.
-  const consumedInputs = supplies.map((s) => {
-    let consumed = 0;
+
+  // Tally net consumption per raw resource (or per item the user explicitly
+  // supplied). Net = recipe inputs minus recipe byproducts of the same item.
+  const consumptionByItem = new Map<string, number>();
+  const itemsToReport = new Set<string>(supplies.map((s) => s.item));
+  if (autoSupplyRawResources) {
+    for (const raw of Object.keys(data.resources)) itemsToReport.add(raw);
+  }
+  for (const item of itemsToReport) {
+    let net = 0;
     for (const line of lines) {
-      for (const i of line.inputs) {
-        if (i.item === s.item) consumed += i.ratePerMin;
-      }
-      // Also subtract any byproduct production of this item back out
-      for (const o of line.outputs) {
-        if (o.item === s.item) consumed -= o.ratePerMin;
-      }
+      for (const i of line.inputs) if (i.item === item) net += i.ratePerMin;
+      for (const o of line.outputs) if (o.item === item) net -= o.ratePerMin;
     }
-    return { item: s.item, ratePerMin: Math.max(0, consumed) };
-  });
+    consumptionByItem.set(item, Math.max(0, net));
+  }
+  const consumedInputs = [...consumptionByItem.entries()]
+    // Show every item the user explicitly supplied (even if 0) plus any auto-supplied raw actually consumed.
+    .filter(([item, rate]) => rate > EPS || supplies.some((s) => s.item === item))
+    .map(([item, rate]) => ({ item, ratePerMin: rate }))
+    .sort((a, b) => b.ratePerMin - a.ratePerMin);
 
   return {
     status: 'optimal',

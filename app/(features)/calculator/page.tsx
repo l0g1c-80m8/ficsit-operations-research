@@ -62,7 +62,10 @@ export default function CalculatorPage() {
         minRatePerMin: t.rate > 0 ? t.rate : undefined,
         weight: 1,
       })),
-      { includeAlternates: inputs.allowAlternates },
+      {
+        includeAlternates: inputs.allowAlternates,
+        autoSupplyRawResources: inputs.autoSupplyRaw ?? true,
+      },
     );
     setPlan(result);
   }
@@ -177,15 +180,22 @@ export default function CalculatorPage() {
         <div className="space-y-4">
           <Card>
             <CardHeader
-              title="Available Inputs"
-              subtitle="Items/min you can supply (raw or otherwise). Caps the solver."
+              title="Supply Caps (optional)"
+              subtitle={
+                inputs.autoSupplyRaw !== false
+                  ? 'Raw resources are unlimited by default. Add a row only to cap one (e.g., your actual mining throughput).'
+                  : 'Strict mode: every consumed item must be explicitly listed here.'
+              }
             />
             <CardBody className="space-y-2">
+              {inputs.supplies.length === 0 && inputs.autoSupplyRaw !== false && (
+                <UnlimitedRawHint rawItems={rawItems} />
+              )}
               {inputs.supplies.map((row, idx) => (
                 <RateRow
                   key={idx}
                   row={row}
-                  options={rawItems.length ? rawItems : allItems}
+                  options={allItems}
                   unit="/m"
                   onChange={(r) => setSupplies((s) => s.map((x, i) => (i === idx ? r : x)))}
                   onRemove={() => setSupplies((s) => s.filter((_, i) => i !== idx))}
@@ -196,7 +206,7 @@ export default function CalculatorPage() {
                 size="sm"
                 onClick={() => setSupplies((s) => [...s, { item: '', rate: 0 }])}
               >
-                <Plus className="h-3.5 w-3.5" /> Add input
+                <Plus className="h-3.5 w-3.5" /> Add cap
               </Button>
             </CardBody>
           </Card>
@@ -230,7 +240,7 @@ export default function CalculatorPage() {
 
           <Card>
             <CardHeader title="Options" />
-            <CardBody>
+            <CardBody className="space-y-2">
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -239,6 +249,16 @@ export default function CalculatorPage() {
                   className="h-4 w-4 accent-ficsit-accent"
                 />
                 Allow alternate recipes
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={inputs.autoSupplyRaw !== false}
+                  onChange={(e) => setInputs((i) => ({ ...i, autoSupplyRaw: e.target.checked }))}
+                  className="h-4 w-4 accent-ficsit-accent"
+                />
+                Auto-supply unspecified raw resources
+                <span className="text-[10px] text-ficsit-subtle">(treat as unlimited)</span>
               </label>
             </CardBody>
           </Card>
@@ -258,6 +278,29 @@ export default function CalculatorPage() {
         onImport={importHistory}
       />
     </>
+  );
+}
+
+function UnlimitedRawHint({ rawItems }: { rawItems: { className: string; name: string }[] }) {
+  return (
+    <div className="rounded-md border border-dashed border-ficsit-good/40 bg-ficsit-good/5 p-2 text-xs text-ficsit-subtle">
+      <div className="mb-1.5 flex items-center gap-1.5 text-ficsit-good">
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-ficsit-good" />
+        <span className="font-medium uppercase tracking-wide">Auto-supply on</span>
+      </div>
+      All raw resources are assumed unlimited:
+      <div className="mt-1.5 flex flex-wrap gap-1">
+        {rawItems.map((it) => (
+          <span
+            key={it.className}
+            className="inline-flex items-center gap-1 rounded border border-ficsit-border bg-ficsit-panel2 px-1.5 py-0.5"
+          >
+            <ItemIcon className={it.className} size={12} />
+            {it.name}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

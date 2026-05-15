@@ -9,6 +9,8 @@ export interface CalcInputs {
   supplies: CalcRow[];
   targets: CalcRow[];
   allowAlternates: boolean;
+  /** When true (default), raw resources not in `supplies` are treated as unlimited. */
+  autoSupplyRaw?: boolean;
 }
 
 /** Compact summary of a plan stored alongside its inputs so the history list
@@ -34,16 +36,11 @@ export const CALC_CURRENT_KEY = 'ficsit.calculator.current.v1';
 export const CALC_HISTORY_KEY = 'ficsit.calculator.history.v1';
 
 export const DEFAULT_INPUTS: CalcInputs = {
-  supplies: [
-    { item: 'Desc_OreIron_C', rate: 480 },
-    { item: 'Desc_OreCopper_C', rate: 240 },
-    { item: 'Desc_Stone_C', rate: 240 },
-    { item: 'Desc_Coal_C', rate: 240 },
-    { item: 'Desc_LiquidOil_C', rate: 240 },
-    { item: 'Desc_Water_C', rate: 1200 },
-  ],
-  targets: [{ item: 'Desc_IronPlate_C', rate: 0 }],
+  // Empty by default — raw resources auto-supplied. Users add a row only to cap one.
+  supplies: [],
+  targets: [{ item: 'Desc_IronPlate_C', rate: 60 }],
   allowAlternates: false,
+  autoSupplyRaw: true,
 };
 
 export function summarizePlan(plan: FactoryPlan): CalcPlanSummary {

@@ -40,6 +40,8 @@ const DIM = '[2m';
 const BOLD = '[1m';
 const RESET = '[0m';
 
+const UNLIMITED_SUPPLY = 1_000_000;
+
 /* ─── Lookup helpers ─── */
 
 const itemBySlug = new Map();
@@ -111,6 +113,7 @@ const opts = {
   list: null,
   interactive: false,
   raw: false,
+  strict: false,
   topRecipes: Infinity,
   help: false,
 };
@@ -124,6 +127,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--rate') opts.targetRate = Number(args[++i]);
   else if (a === '--weight') opts.weight = Number(args[++i]);
   else if (a === '--raw') opts.raw = true;
+  else if (a === '--strict' || a === '--no-auto-raw') opts.strict = true;
   else if (a === '--top') opts.topRecipes = Number(args[++i]);
   else if (a === '--supply' || a === '-s') {
     const value = args[++i] ?? '';
@@ -277,7 +281,8 @@ Flags:
       --weight N          Objective weight on the target (default: 1).
       --alts              Allow alternate recipes.
       --top N             Limit recipe lines printed to top N by machines.
-      --raw               Auto-allow every raw resource at a generous cap.
+      --raw               (deprecated; auto-supply is on by default).
+      --strict            Disable auto-supply. Every consumed raw must be listed via --supply.
   -i, --interactive       Prompt-driven mode.
       --list KIND         List "recipes" (default), "items", or "buildings".
   -h, --help              Show this help.
@@ -309,9 +314,16 @@ function recipePowerKW(r) {
 }
 
 function solveFactory({ data, supplies, targets, includeAlternates }) {
-  let suppliesEff = supplies;
-  if (opts.raw && supplies.length === 0) {
-    suppliesEff = Object.keys(data.resources).map((c) => ({ item: c, ratePerMin: c === 'Desc_Water_C' ? 12000 : 600 }));
+  // Default behavior: auto-supply every raw resource (unlimited). User can
+  // override a specific cap via --supply, or disable entirely via --strict.
+  let suppliesEff = [...supplies];
+  if (!opts.strict) {
+    const userItems = new Set(supplies.map((s) => s.item));
+    for (const raw of Object.keys(data.resources)) {
+      if (!userItems.has(raw)) {
+        suppliesEff.push({ item: raw, ratePerMin: UNLIMITED_SUPPLY, _auto: true });
+      }
+    }
   }
   const candidate = data.recipes.filter((r) => includeAlternates || !r.alternate);
   const supplyByItem = new Map();
@@ -335,16 +347,24 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
     constraints[`bal_${it}`] = { min: -cap };
   }
 
+  // If any target has a fixed min rate, the user wants at-least-that-much with
+  // the smallest factory. Otherwise we maximize output (the "how much can I
+  // make from this supply" mode).
+  const hasFixedTarget = targets.some((t) => (t.minRatePerMin ?? 0) > 0);
+
   candidate.forEach((r, idx) => {
     const v = {};
     for (const p of r.products) v[`bal_${p.item}`] = (v[`bal_${p.item}`] ?? 0) + ratePerMin(p.amount, r.time);
     for (const i of r.ingredients) v[`bal_${i.item}`] = (v[`bal_${i.item}`] ?? 0) - ratePerMin(i.amount, r.time);
-    v.obj = 0;
+    v.obj = hasFixedTarget ? 1 : 0;
     variables[`x_${idx}`] = v;
   });
 
   for (const t of targets) {
-    variables[`produced_${t.item}`] = { [`bal_${t.item}`]: -1, obj: t.weight ?? 1 };
+    variables[`produced_${t.item}`] = {
+      [`bal_${t.item}`]: -1,
+      obj: hasFixedTarget ? 0 : (t.weight ?? 1),
+    };
     if (t.minRatePerMin && t.minRatePerMin > 0) {
       constraints[`min_${t.item}`] = { min: t.minRatePerMin };
       variables[`produced_${t.item}`][`min_${t.item}`] = 1;
@@ -355,7 +375,12 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
     console.error('[debug] sample variables:', Object.keys(variables).slice(0, 8));
     console.error('[debug] sample constraints:', Object.keys(constraints).slice(0, 8));
   }
-  const result = solver.Solve({ optimize: 'obj', opType: 'max', constraints, variables });
+  const result = solver.Solve({
+    optimize: 'obj',
+    opType: hasFixedTarget ? 'min' : 'max',
+    constraints,
+    variables,
+  });
   if (process.env.FICSIT_DEBUG) {
     console.error('[debug] LP result keys:', Object.keys(result).slice(0, 12), '… feasible=', result.feasible, 'bounded=', result.bounded, 'result=', result.result);
   }
@@ -385,7 +410,9 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
   });
 
   const outputs = targets.map((t) => ({ item: t.item, ratePerMin: result[`produced_${t.item}`] ?? 0 }));
-  // Tally actual raw consumption from recipe inputs (minus any byproducts producing the same item).
+  // Tally net raw consumption per supply item. Show user-specified caps even at 0,
+  // and any auto-supplied raw actually used.
+  const userItems = new Set(supplies.map((s) => s.item));
   const consumedInputs = suppliesEff
     .map((s) => {
       let net = 0;
@@ -393,9 +420,10 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
         for (const i of line.inputs) if (i.item === s.item) net += i.ratePerMin;
         for (const o of line.outputs) if (o.item === s.item) net -= o.ratePerMin;
       }
-      return { item: s.item, ratePerMin: Math.max(0, net) };
+      return { item: s.item, ratePerMin: Math.max(0, net), userCapped: userItems.has(s.item), cap: s.ratePerMin };
     })
-    .filter((row) => row.ratePerMin > EPS);
+    .filter((row) => row.userCapped || row.ratePerMin > EPS)
+    .sort((a, b) => b.ratePerMin - a.ratePerMin);
   return {
     status: 'optimal',
     lines,
@@ -460,10 +488,15 @@ function printPlan(plan, data, { targetItemName, topRecipes = Infinity }) {
   console.log(`${BOLD}RAW / INPUTS CONSUMED${RESET}`);
   for (const o of plan.consumedInputs) {
     const it = data.items[o.item];
-    if (o.ratePerMin <= 1e-6) continue;
-    const cap = plan.suppliesUsed.find((s) => s.item === o.item)?.ratePerMin ?? 0;
-    const usage = cap ? ` ${DIM}(${Math.round((o.ratePerMin / cap) * 100)}% of ${fmt(cap)}/m cap)${RESET}` : '';
-    console.log(`  ${YELLOW}${fmt(o.ratePerMin).padStart(8)}/m${RESET}  ${pad(it?.name ?? o.item, 24)}${usage}`);
+    if (o.ratePerMin <= 1e-6 && !o.userCapped) continue;
+    let suffix = '';
+    if (o.userCapped) {
+      const pct = o.cap > 0 ? Math.round((o.ratePerMin / o.cap) * 100) : 0;
+      suffix = ` ${DIM}(${pct}% of ${fmt(o.cap)}/m cap)${RESET}`;
+    } else {
+      suffix = ` ${DIM}(auto-supplied)${RESET}`;
+    }
+    console.log(`  ${YELLOW}${fmt(o.ratePerMin).padStart(8)}/m${RESET}  ${pad(it?.name ?? o.item, 24)}${suffix}`);
   }
   console.log();
 

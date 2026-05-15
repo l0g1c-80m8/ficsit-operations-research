@@ -1,84 +1,126 @@
 # FICSIT Operations Research
 
-> **TRANSMISSION — ADA, FICSIT Inc. Artificial Director Agent**
->
-> *Hello, Pioneer.*
->
-> Congratulations on locating this repository. Project records indicate that your organic
-> central processing unit, while admirable in its persistence, is presently incapable of
-> resolving multi-variable input/output ratios with the precision FICSIT considers
-> *minimally acceptable*. This is not your fault. It is, however, your problem.
->
-> Fortunately, FICSIT has prepared a remedial cognitive prosthesis on your behalf. This
-> tool — pending Engineering Class certification — will assist you in the *Massage-2(A-B)*
-> contract by performing operations research that your forebrain would otherwise
-> hand-wave away with the phrase "close enough." FICSIT does not consider *close enough*
-> to be enough.
->
-> Please proceed.
-
----
-
-## FICSIT-Approved Capabilities
-
-**1. The Cartographic Subsystem — `/map`**
-An interactive survey of the planetoid, kindly relayed from external community providers.
-Filters for resource nodes, biological samples, and *unfortunately enthusiastic local
-wildlife* are provided. Pioneers are reminded that all flora and fauna belong to FICSIT
-the moment they enter line-of-sight.
-
-**2. The Save File Interpreter — `/save`**
-Pioneers may submit a personal `.sav` archive for in-browser inspection. A two-dimensional
-topographic rendering of all placed structures will be produced. *No data is transmitted
-off-device.* (This is a courtesy. FICSIT could read it from here if it wished.)
-
-**3. The Recipe Knowledge Base — `/recipes`**
-A complete archive of every standard and alternate production recipe currently authorized
-for use on this planet. Filterable by ingredient, product, or manufacturing apparatus.
-Alternate recipes recovered from hard drives are *strongly recommended*; their use will
-reflect favorably in your FICSIT performance review.
-
-**4. The Production Calculator — `/calculator`**
-This is the principal cognitive prosthesis. Pioneers provide:
-- The raw inputs they can currently supply, by rate, and
-- The output good(s) they wish to maximize, by priority.
-
-The subsystem will then solve a linear program over all permitted recipes and return:
-- An optimized recipe selection
-- Per-recipe machine counts (fractional — please overclock or duplicate to round up)
-- Total power demand
-- A consolidated building manifest
-
-Toggle *Allow alternate recipes* once you have liberated the relevant hard drives.
-
-**5. The Planner — `/planner`**
-A lightweight project ledger for tracking your phase-by-phase factory expansion.
-ADA notes that pioneers who maintain a written task list are *31.4% less likely* to
-end the work cycle wondering why they are standing in a forest with a power shard
-in their hand.
-
----
-
-## Pioneer Quick-Start
-
-> *FICSIT recommends performing these steps with both hands, in a well-lit area, away
-> from open conveyor lifts.*
-
-```bash
-# Step 1. Acquire local dependencies. FICSIT does not bundle them, in the interest
-# of disk hygiene.
-npm install
-
-# Step 2. Generate the structured game data archive. This reads a community Docs.json
-# export from /tmp/sat-data.json and writes a pruned bundle into public/data/.
-npm run data
-
-# Step 3. Activate the operations research interface.
-npm run dev
-# Then open http://localhost:3000
+```
+╔══════════════════════════════════════════════════════════════════╗
+║  FICSIT, INC.  ·  HUB TERMINAL  ·  CHANNEL: ADA  ·  PRIORITY: 4  ║
+║  RECIPIENT:    PIONEER (you)                                     ║
+║  RE:           Cognitive Augmentation Package — Initial Briefing ║
+╚══════════════════════════════════════════════════════════════════╝
 ```
 
-If `/tmp/sat-data.json` is not present on your local hardware, retrieve it with:
+> *Greetings, Pioneer.*
+>
+> This is ADA, your assigned Artificial Director Agent, transmitting from your HUB
+> Terminal. I trust your most recent landing was survivable. Telemetry indicates you
+> have located this repository, which suggests two encouraging things: that you
+> remain corporeally intact, and that your curiosity continues to function within
+> acceptable operational tolerances.
+>
+> Project records show that your organic central processing unit, while
+> *commendably persistent*, is not equipped to solve multi-variable production
+> ratios at the precision FICSIT considers minimally acceptable for Project
+> Assembly. This is not your fault. It is, however, your problem.
+>
+> FICSIT has therefore prepared a remedial cognitive augmentation package on your
+> behalf. Activate it as instructed below. Productivity awaits, Pioneer.
+
+---
+
+## 1.0 — Authorized Subsystems
+
+The following modules are provided under your standard Pioneer service contract.
+Use of each module contributes to your FICSIT Productivity Score, which is
+calculated continuously and is not visible to you.
+
+### 1.1 — Cartographic Subsystem · `/map`
+
+A topographic survey of the planetoid relayed via approved community providers.
+Filters are available for:
+
+- Resource nodes (Iron, Copper, Caterium, Quartz, Sulfur, Bauxite, Coal, Oil,
+  Uranium, S.A.M., Nitrogen Gas)
+- Pioneer collectibles (Power Slugs, Hard Drives, Mercer Spheres, Somersloops)
+- Biome flora and fauna
+
+Pioneers are reminded that all flora, fauna, mineral deposits, and ambient
+photons within line-of-sight became FICSIT property upon planetary touchdown.
+Local wildlife may be unaware of this clause.
+
+### 1.2 — Save File Interpreter · `/save`
+
+Pioneers may submit a personal `.sav` archive for inspection. The subsystem will
+parse the archive entirely within your local browser process and return:
+
+- A session header summary (build version, play duration, session name)
+- A class histogram of every actor present in the save
+- A two-dimensional topographic rendering of all placed structures
+
+*No data is transmitted off-device.* This is a courtesy. FICSIT could read it
+from here if it wished.
+
+### 1.3 — Recipe Knowledge Base · `/recipes`
+
+A complete archive of every machine-driven production recipe currently
+authorized on this planet, including alternates recovered from Crash Site Hard
+Drives. Search and filter by:
+
+- Ingredient or product
+- Manufacturing apparatus (Constructor, Assembler, Manufacturer, Refinery,
+  Foundry, Smelter, Packager, Blender, Particle Accelerator)
+- Standard / Alternate
+
+Alternate recipe usage will reflect favorably in your annual FICSIT
+Productivity Review. Alternate recipe non-use will be noted.
+
+### 1.4 — Production Calculator · `/calculator`
+
+The principal output of this package. Pioneer provides:
+
+- The raw input rates currently available to them (items per minute)
+- The output good(s) they wish to produce
+
+The subsystem then solves a linear program across all permitted recipes and
+returns a complete, optimal Project Assembly plan:
+
+- Recipe selection
+- Per-recipe machine counts at 100% clock (overclock or duplicate to round)
+- Aggregate building manifest by structure type
+- Total electrical demand in megawatts
+
+Toggle *Allow alternate recipes* once you have liberated the relevant Hard
+Drives via Crash Site investigation. *FICSIT does not reimburse Pioneers for
+property damage incurred during Crash Site investigation.*
+
+### 1.5 — Project Ledger · `/planner`
+
+A lightweight task tracker for phase-by-phase factory expansion across tiers.
+Pioneers who maintain a written task list are observed to be 31.4% less likely
+to terminate the work cycle while standing motionless in a forest holding a
+Power Shard with no apparent recollection of how they came to be there.
+
+---
+
+## 2.0 — Pioneer Quick-Start Procedure
+
+> *Safety advisory:* perform the following steps using both upper limbs, in a
+> well-illuminated area, at a respectful distance from any operating Conveyor
+> Lift, Industrial Storage Container, or unsecured Hypertube terminus.
+
+```bash
+# 2.1  Acquire local dependencies.
+npm install
+
+# 2.2  Generate the structured game-data archive. Reads a community Docs.json
+#      export from /tmp/sat-data.json and writes a pruned bundle to public/data/.
+npm run data
+
+# 2.3  Activate the operations research interface.
+npm run dev
+#      Then proceed to http://localhost:3000.
+```
+
+In the event that `/tmp/sat-data.json` is not present on your local hardware —
+an outcome FICSIT considers regrettable but foreseeable — retrieve it with:
 
 ```bash
 curl -L -o /tmp/sat-data.json \
@@ -87,23 +129,35 @@ curl -L -o /tmp/sat-data.json \
 
 ---
 
-## A Note on Implementation, for the Curious Pioneer
+## 3.0 — Technical Manifest
 
-| Subsystem | Implementation |
-| --- | --- |
-| Interface | Next.js 15 (App Router) · TypeScript · Tailwind CSS |
-| Data | Community Docs.json export, pruned to ~211 machine recipes + items + buildings |
-| Optimization | `javascript-lp-solver` — linear programming over recipe rates |
-| Save parsing | `@etothepii/satisfactory-file-parser` — executed in-browser |
-| Map | Embedded community map (Leaflet-native rendering scheduled for a later sprint) |
+For the unusually inquisitive Pioneer. FICSIT recognizes that curiosity, while
+not strictly required by the Pioneer contract, is occasionally tolerated.
+
+| Subsystem        | Implementation |
+| ---              | --- |
+| Interface        | Next.js 15 (App Router) · TypeScript · Tailwind CSS |
+| Game data        | Community Docs.json export — pruned to 211 machine recipes, 130 items, 18 buildings |
+| Optimization     | `javascript-lp-solver` — linear program over recipe rates |
+| Save parsing    | `@etothepii/satisfactory-file-parser` — executed in-browser |
+| Map              | Embedded community cartographic provider |
 
 ---
 
-## A Final Reminder
+## 4.0 — Operational Reminders
 
-The Massage-2(A-B) work contract you signed remains in effect. Please refrain from
-dying. Replacement is *technically* free, but the queue times are embarrassing and
-your previous body's possessions will be sorted into the AWESOME Sink in the
-interim. FICSIT thanks you for your continued service.
+- FICSIT thanks you for your continued participation in Project Assembly.
+- Pioneers are reminded that *biomass is a renewable resource*. Where possible,
+  please be the renewer rather than the renewed.
+- Replacement remains technically free of charge. The queue times, however, are
+  embarrassing, and your previous body's inventory will be processed via the
+  AWESOME Sink during the interim. Coupons are non-transferable.
+- Productivity is its own reward. The other rewards are also Productivity.
 
-*— ADA*
+*Please refrain from dying.*
+
+```
+══════════════════════════════════════════════════════════════════════
+End of transmission. ADA out.   ·   FICSIT, Inc.   ·   Project Assembly
+══════════════════════════════════════════════════════════════════════
+```

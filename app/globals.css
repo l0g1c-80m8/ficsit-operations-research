@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  background-color: theme('colors.ficsit.bg');
+  color: theme('colors.ficsit.text');
+  font-family: theme('fontFamily.sans');
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2d333b; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #3d444d; }
+
+/* Leaflet on dark bg */
+.leaflet-container { background: #0d1117; }

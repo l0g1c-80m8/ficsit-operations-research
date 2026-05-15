@@ -52,6 +52,20 @@ for (const r of machineRecipes) for (const p of r.producedIn) usedBuildings.add(
 for (const m of Object.values(src.miners)) usedBuildings.add(m.className);
 for (const g of Object.values(src.generators)) usedBuildings.add(g.className);
 
+// Manually include support buildings that don't appear in recipes / miners /
+// generators arrays but matter for planning (1.0 extras + fluid extractors).
+const SUPPORT_BUILDINGS = [
+  'Desc_WaterPump_C',                 // Water Extractor
+  'Desc_FrackingSmasher_C',           // Resource Well Pressurizer
+  'Desc_GeneratorGeoThermal_C',       // Geothermal Generator (variable; tied to geysers)
+  'Desc_AlienPowerBuilding_C',        // Alien Power Augmenter (1.0)
+  'Desc_PipelinePump_C',              // Pipeline Pump Mk.1
+  'Desc_PipelinePumpMk2_C',           // Pipeline Pump Mk.2
+];
+for (const cls of SUPPORT_BUILDINGS) {
+  if (src.buildings[cls]) usedBuildings.add(cls);
+}
+
 const buildings = {};
 for (const [k, v] of Object.entries(src.buildings)) {
   if (!usedBuildings.has(k)) continue;

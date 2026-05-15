@@ -51,6 +51,20 @@ for (const it of Object.values(data.items)) {
   itemByLower.set(it.name.toLowerCase(), it);
 }
 
+// Normalize British spellings + non-alphanumerics so search tolerates "Sulphuric Acid",
+// "Aluminium Ingot", "iron-plate", "IRON PLATE", etc.
+function normalize(s) {
+  return (s ?? '')
+    .toLowerCase()
+    .replace(/sulphur/g, 'sulfur')
+    .replace(/aluminium/g, 'aluminum')
+    .replace(/colour/g, 'color')
+    .replace(/fibre/g, 'fiber')
+    .replace(/grey/g, 'gray')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 function resolveItem(token) {
   if (!token) return null;
   if (itemByClass.has(token)) return itemByClass.get(token);
@@ -62,8 +76,18 @@ function resolveItem(token) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
   if (itemBySlug.has(slugified)) return itemBySlug.get(slugified);
-  // Partial match
-  const partial = [...itemByLower.values()].filter((i) => i.name.toLowerCase().includes(lower));
+
+  // Spell-tolerant + partial match.
+  const needle = normalize(token);
+  if (!needle) return null;
+  const tokens = needle.split(' ');
+  const partial = [...itemByLower.values()].filter((i) => {
+    const hay = normalize(i.name);
+    return tokens.every((t) => hay.includes(t));
+  });
+  // Prefer exact normalized match first.
+  const exact = partial.find((i) => normalize(i.name) === needle);
+  if (exact) return exact;
   if (partial.length === 1) return partial[0];
   if (partial.length > 1) {
     const err = new Error(

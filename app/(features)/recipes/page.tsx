@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { ItemIcon } from '@/components/ui/ItemIcon';
 import { useGameData } from '@/lib/data/use-data';
 import { fmt, ratePerMin, cn } from '@/lib/utils';
+import { matchesQuery } from '@/lib/utils/normalize';
 import type { SatRecipe } from '@/lib/data/types';
 import { RecipeDetail } from '@/components/recipes/RecipeDetail';
 import { ArrowRight, Search, ChevronRight } from 'lucide-react';
@@ -32,15 +33,15 @@ export default function RecipesPage() {
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     return data.recipes.filter((r) => {
       if (filter === 'standard' && r.alternate) return false;
       if (filter === 'alternate' && !r.alternate) return false;
       if (building !== 'all' && !r.producedIn.includes(building)) return false;
       if (!q) return true;
-      if (r.name.toLowerCase().includes(q)) return true;
-      if (r.products.some((p) => data.items[p.item]?.name.toLowerCase().includes(q))) return true;
-      if (r.ingredients.some((i) => data.items[i.item]?.name.toLowerCase().includes(q))) return true;
+      if (matchesQuery(r.name, q)) return true;
+      if (r.products.some((p) => matchesQuery(data.items[p.item]?.name ?? '', q))) return true;
+      if (r.ingredients.some((i) => matchesQuery(data.items[i.item]?.name ?? '', q))) return true;
       return false;
     });
   }, [data, query, filter, building]);

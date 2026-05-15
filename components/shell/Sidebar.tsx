@@ -10,6 +10,7 @@ import {
   ClipboardList,
   ChevronsLeft,
   ChevronsRight,
+  Factory,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -31,6 +32,7 @@ const sections: { title: string; items: { href: string; label: string; icon: Rea
     title: 'Production',
     items: [
       { href: '/recipes', label: 'Recipes', icon: BookOpen },
+      { href: '/buildings', label: 'Buildings', icon: Factory },
       { href: '/calculator', label: 'Calculator', icon: Calculator },
       { href: '/planner', label: 'Planner', icon: ClipboardList },
     ],

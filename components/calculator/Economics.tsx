@@ -17,7 +17,7 @@ interface GeneratorOption {
 /** Realistic generator sizing options. Coal/Fuel/Nuclear all use the in-game
  *  rated power output per unit at 100% clock. */
 const GENERATORS: GeneratorOption[] = [
-  { name: 'Biomass Burner', buildingClass: 'Desc_GeneratorBiomass_C', perUnitMW: 30, description: 'Early-game; burns biomass.' },
+  { name: 'Biomass Burner', buildingClass: 'Desc_GeneratorBiomass_Automated_C', perUnitMW: 30, description: 'Early-game; burns biomass.' },
   { name: 'Coal Generator', buildingClass: 'Desc_GeneratorCoal_C', perUnitMW: 75, description: '45 coal/m + 45 water/m per unit.' },
   { name: 'Fuel Generator', buildingClass: 'Desc_GeneratorFuel_C', perUnitMW: 250, description: '20 fuel/m per unit.' },
   { name: 'Nuclear Power Plant', buildingClass: 'Desc_GeneratorNuclear_C', perUnitMW: 2500, description: '0.2 uranium-fuel-rod/m per unit.' },

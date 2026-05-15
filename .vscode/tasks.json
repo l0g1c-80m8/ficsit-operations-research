@@ -85,10 +85,47 @@
     },
     {
       "label": "fetch item + building icons",
-      "detail": "Re-download icons from satisfactory.wiki.gg into public/icons/",
+      "detail": "Re-download icons from satisfactory.wiki.gg into public/icons/ (keeps existing)",
       "type": "npm",
       "script": "icons",
       "icon": { "id": "symbol-color", "color": "terminal.ansiYellow" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "force re-fetch all icons",
+      "detail": "Wipe-and-redownload every icon (--force)",
+      "type": "npm",
+      "script": "icons:force",
+      "icon": { "id": "refresh", "color": "terminal.ansiYellow" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "retry missing icons",
+      "detail": "Re-attempt only the icons listed in public/icons/_missing.json",
+      "type": "npm",
+      "script": "icons:missing",
+      "icon": { "id": "issues", "color": "terminal.ansiYellow" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "refresh all cached data",
+      "detail": "Fetch Docs.json + prune + fetch any missing icons (single command)",
+      "type": "npm",
+      "script": "refresh",
+      "icon": { "id": "cloud-download", "color": "terminal.ansiGreen" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "refresh ALL (force icons)",
+      "detail": "Same as refresh, but force-redownloads every icon",
+      "type": "shell",
+      "command": "node",
+      "args": ["scripts/refresh.mjs", "--force-icons"],
+      "icon": { "id": "sync-ignored", "color": "terminal.ansiRed" },
       "presentation": { "reveal": "always", "panel": "shared", "clear": true },
       "problemMatcher": []
     },

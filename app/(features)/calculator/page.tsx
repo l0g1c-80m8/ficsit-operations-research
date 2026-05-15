@@ -10,30 +10,25 @@ import { ItemIcon } from '@/components/ui/ItemIcon';
 import { useGameData } from '@/lib/data/use-data';
 import { fmt } from '@/lib/utils';
 import { solveFactory, type FactoryPlan } from '@/lib/solver/factory-solver';
-import { Play, Plus, Trash2 } from 'lucide-react';
-
-interface Row {
-  item: string;
-  rate: number;
-}
-
-const DEFAULT_SUPPLY_CAPS = [
-  ['Desc_OreIron_C', 480],
-  ['Desc_OreCopper_C', 240],
-  ['Desc_Stone_C', 240],
-  ['Desc_Coal_C', 240],
-  ['Desc_LiquidOil_C', 240],
-  ['Desc_Water_C', 1200],
-] as const;
+import { useLocalStorage } from '@/lib/storage/use-local-storage';
+import {
+  CALC_CURRENT_KEY,
+  CALC_HISTORY_KEY,
+  DEFAULT_INPUTS,
+  summarizePlan,
+  type CalcInputs,
+  type CalcRow,
+  type CalcSaveEntry,
+} from '@/lib/calculator/types';
+import { CalcHistory } from '@/components/calculator/CalcHistory';
+import { History, Play, Plus, Save, Trash2 } from 'lucide-react';
 
 export default function CalculatorPage() {
   const { data, loading } = useGameData();
-  const [supplies, setSupplies] = useState<Row[]>(
-    DEFAULT_SUPPLY_CAPS.map(([item, rate]) => ({ item, rate })),
-  );
-  const [targets, setTargets] = useState<Row[]>([{ item: 'Desc_IronPlate_C', rate: 0 }]);
-  const [allowAlternates, setAllowAlternates] = useState(false);
+  const [inputs, setInputs] = useLocalStorage<CalcInputs>(CALC_CURRENT_KEY, DEFAULT_INPUTS);
+  const [history, setHistory] = useLocalStorage<CalcSaveEntry[]>(CALC_HISTORY_KEY, []);
   const [plan, setPlan] = useState<FactoryPlan | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const allItems = useMemo(() => {
     if (!data) return [];
@@ -45,41 +40,133 @@ export default function CalculatorPage() {
     return Object.keys(data.resources).map((k) => data.items[k]).filter(Boolean);
   }, [data]);
 
+  function setSupplies(updater: (s: CalcRow[]) => CalcRow[]) {
+    setInputs((i) => ({ ...i, supplies: updater(i.supplies) }));
+  }
+  function setTargets(updater: (s: CalcRow[]) => CalcRow[]) {
+    setInputs((i) => ({ ...i, targets: updater(i.targets) }));
+  }
+
   function run() {
     if (!data) return;
-    const sup = supplies.filter((s) => s.item && s.rate > 0);
-    const tgt = targets.filter((t) => t.item);
-    setPlan(
-      solveFactory(
-        data,
-        sup.map((s) => ({ item: s.item, ratePerMin: s.rate })),
-        tgt.map((t) => ({
-          item: t.item,
-          minRatePerMin: t.rate > 0 ? t.rate : undefined,
-          weight: 1,
-        })),
-        { includeAlternates: allowAlternates },
-      ),
+    const sup = inputs.supplies.filter((s) => s.item && s.rate > 0);
+    const tgt = inputs.targets.filter((t) => t.item);
+    const result = solveFactory(
+      data,
+      sup.map((s) => ({ item: s.item, ratePerMin: s.rate })),
+      tgt.map((t) => ({
+        item: t.item,
+        minRatePerMin: t.rate > 0 ? t.rate : undefined,
+        weight: 1,
+      })),
+      { includeAlternates: inputs.allowAlternates },
     );
+    setPlan(result);
+  }
+
+  function suggestSaveName(): string {
+    const t = inputs.targets.find((x) => x.item);
+    const itemName = t ? data?.items[t.item]?.name : null;
+    if (itemName) return `${itemName} plan`;
+    return `Plan ${new Date().toLocaleString()}`;
+  }
+
+  function savePlan() {
+    const suggested = suggestSaveName();
+    const name = window.prompt('Name this plan:', suggested);
+    if (!name || !name.trim()) return;
+    const entry: CalcSaveEntry = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      savedAt: Date.now(),
+      inputs,
+      summary: plan ? summarizePlan(plan) : null,
+    };
+    setHistory((h) => [entry, ...h]);
+  }
+
+  function loadEntry(entry: CalcSaveEntry) {
+    setInputs(entry.inputs);
+    setPlan(null);
+    setShowHistory(false);
+  }
+
+  function deleteEntry(id: string) {
+    setHistory((h) => h.filter((e) => e.id !== id));
+  }
+
+  function clearHistory() {
+    if (!confirm('Delete all saved plans? This cannot be undone.')) return;
+    setHistory([]);
+  }
+
+  function exportHistory() {
+    const blob = new Blob(
+      [
+        JSON.stringify(
+          { exportedAt: new Date().toISOString(), schema: 'ficsit.calculator.history.v1', history },
+          null,
+          2,
+        ),
+      ],
+      { type: 'application/json' },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ficsit-calculator-history-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importHistory(file: File) {
+    try {
+      const text = await file.text();
+      const obj = JSON.parse(text) as { history?: CalcSaveEntry[] } | CalcSaveEntry[];
+      const incoming = Array.isArray(obj) ? obj : obj.history;
+      if (!incoming || !Array.isArray(incoming)) throw new Error('Invalid file');
+      // De-dup by id; new entries win.
+      const byId = new Map(history.map((e) => [e.id, e]));
+      for (const e of incoming) byId.set(e.id, e);
+      setHistory([...byId.values()].sort((a, b) => b.savedAt - a.savedAt));
+    } catch (e) {
+      alert(`Failed to import history: ${(e as Error).message}`);
+    }
+  }
+
+  function resetToDefaults() {
+    if (!confirm('Reset all inputs to defaults?')) return;
+    setInputs(DEFAULT_INPUTS);
+    setPlan(null);
   }
 
   if (loading || !data) {
-    return (
-      <>
-        <PageHeader title="Production Calculator" subtitle="Loading game data…" />
-      </>
-    );
+    return <PageHeader title="Production Calculator" subtitle="Loading game data…" />;
   }
 
   return (
     <>
       <PageHeader
         title="Production Calculator"
-        subtitle="Linear-programming optimization over every machine recipe."
+        subtitle="Linear-programming optimization over every machine recipe. Inputs auto-save."
         actions={
-          <Button onClick={run}>
-            <Play className="h-4 w-4" /> Optimize
-          </Button>
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setShowHistory(true)}>
+              <History className="h-4 w-4" /> History
+              {history.length > 0 && (
+                <span className="ml-1 rounded bg-ficsit-bg/40 px-1 text-[10px] font-mono">{history.length}</span>
+              )}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={savePlan}>
+              <Save className="h-4 w-4" /> Save plan
+            </Button>
+            <Button variant="ghost" size="sm" onClick={resetToDefaults} title="Reset to defaults">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+            <Button onClick={run}>
+              <Play className="h-4 w-4" /> Optimize
+            </Button>
+          </>
         }
       />
 
@@ -91,15 +178,13 @@ export default function CalculatorPage() {
               subtitle="Items/min you can supply (raw or otherwise). Caps the solver."
             />
             <CardBody className="space-y-2">
-              {supplies.map((row, idx) => (
+              {inputs.supplies.map((row, idx) => (
                 <RateRow
                   key={idx}
                   row={row}
                   options={rawItems.length ? rawItems : allItems}
                   unit="/m"
-                  onChange={(r) =>
-                    setSupplies((s) => s.map((x, i) => (i === idx ? r : x)))
-                  }
+                  onChange={(r) => setSupplies((s) => s.map((x, i) => (i === idx ? r : x)))}
                   onRemove={() => setSupplies((s) => s.filter((_, i) => i !== idx))}
                 />
               ))}
@@ -119,16 +204,14 @@ export default function CalculatorPage() {
               subtitle="What to produce. Rate=0 → maximize. Rate>0 → produce at least that much, then maximize."
             />
             <CardBody className="space-y-2">
-              {targets.map((row, idx) => (
+              {inputs.targets.map((row, idx) => (
                 <RateRow
                   key={idx}
                   row={row}
                   options={allItems}
                   unit="/m min"
                   placeholderRate="0 = max"
-                  onChange={(r) =>
-                    setTargets((s) => s.map((x, i) => (i === idx ? r : x)))
-                  }
+                  onChange={(r) => setTargets((s) => s.map((x, i) => (i === idx ? r : x)))}
                   onRemove={() => setTargets((s) => s.filter((_, i) => i !== idx))}
                 />
               ))}
@@ -148,8 +231,8 @@ export default function CalculatorPage() {
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  checked={allowAlternates}
-                  onChange={(e) => setAllowAlternates(e.target.checked)}
+                  checked={inputs.allowAlternates}
+                  onChange={(e) => setInputs((i) => ({ ...i, allowAlternates: e.target.checked }))}
                   className="h-4 w-4 accent-ficsit-accent"
                 />
                 Allow alternate recipes
@@ -160,6 +243,17 @@ export default function CalculatorPage() {
 
         <PlanView plan={plan} />
       </div>
+
+      <CalcHistory
+        open={showHistory}
+        onClose={() => setShowHistory(false)}
+        history={history}
+        onLoad={loadEntry}
+        onDelete={deleteEntry}
+        onClearAll={clearHistory}
+        onExport={exportHistory}
+        onImport={importHistory}
+      />
     </>
   );
 }
@@ -172,15 +266,16 @@ function RateRow({
   onChange,
   onRemove,
 }: {
-  row: Row;
+  row: CalcRow;
   options: { className: string; name: string }[];
   unit: string;
   placeholderRate?: string;
-  onChange: (r: Row) => void;
+  onChange: (r: CalcRow) => void;
   onRemove: () => void;
 }) {
   return (
     <div className="flex items-center gap-2">
+      {row.item && <ItemIcon className={row.item} size={28} cls="rounded-md bg-ficsit-panel2 p-0.5" />}
       <select
         value={row.item}
         onChange={(e) => onChange({ ...row, item: e.target.value })}
@@ -241,10 +336,7 @@ function PlanView({ plan }: { plan: FactoryPlan | null }) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader
-          title="Plan Summary"
-          right={<Badge tone="good">Optimal</Badge>}
-        />
+        <CardHeader title="Plan Summary" right={<Badge tone="good">Optimal</Badge>} />
         <CardBody className="grid grid-cols-3 gap-4">
           <Stat label="Total Machines" value={fmt(plan.totalMachines, 1)} />
           <Stat label="Total Power" value={`${fmt(plan.totalPowerKW)} MW`} />

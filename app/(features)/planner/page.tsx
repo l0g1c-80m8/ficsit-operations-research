@@ -1,11 +1,13 @@
 'use client';
 import { useMemo } from 'react';
 import { PageHeader } from '@/components/shell/AppShell';
+import { Button } from '@/components/ui/Button';
 import { useLocalStorage } from '@/lib/storage/use-local-storage';
 import { DEFAULT_STATE, PLANNER_KEY, type PlannerState, type Project, type Task } from '@/lib/planner/types';
 import { KPIStrip } from '@/components/planner/KPIStrip';
 import { ProjectList } from '@/components/planner/ProjectList';
 import { ProjectDetail } from '@/components/planner/ProjectDetail';
+import { Download, RotateCcw, Upload } from 'lucide-react';
 
 export default function PlannerPage() {
   const [state, setState] = useLocalStorage<PlannerState>(PLANNER_KEY, DEFAULT_STATE);
@@ -145,6 +147,37 @@ export default function PlannerPage() {
     setState((s) => ({ ...s, activeId: id }));
   }
 
+  function exportState() {
+    const blob = new Blob(
+      [JSON.stringify({ exportedAt: new Date().toISOString(), schema: PLANNER_KEY, state }, null, 2)],
+      { type: 'application/json' },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ficsit-planner-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importState(file: File) {
+    try {
+      const text = await file.text();
+      const obj = JSON.parse(text) as { state?: PlannerState } | PlannerState;
+      const incoming = (obj as { state?: PlannerState }).state ?? (obj as PlannerState);
+      if (!incoming || !Array.isArray(incoming.projects)) throw new Error('Invalid planner export');
+      if (!confirm(`Replace your current planner state with ${incoming.projects.length} project(s) from this file?`)) return;
+      setState(incoming);
+    } catch (e) {
+      alert(`Failed to import planner state: ${(e as Error).message}`);
+    }
+  }
+
+  function resetToDefaults() {
+    if (!confirm('Reset planner to default sample projects? Your current state will be lost.')) return;
+    setState(DEFAULT_STATE);
+  }
+
   // unused but kept for clarity if/when needed:
   void log;
 
@@ -154,7 +187,30 @@ export default function PlannerPage() {
     <>
       <PageHeader
         title="Planner"
-        subtitle="Track factory expansion across tiers — UniFi-style master/detail with live state."
+        subtitle="Track factory expansion across tiers — auto-saved to your browser."
+        actions={
+          <>
+            <Button variant="secondary" size="sm" onClick={exportState}>
+              <Download className="h-3.5 w-3.5" /> Export
+            </Button>
+            <label className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-ficsit-border bg-ficsit-panel2 px-3 text-sm font-medium text-ficsit-text hover:bg-ficsit-border">
+              <Upload className="h-3.5 w-3.5" /> Import
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void importState(f);
+                  e.currentTarget.value = '';
+                }}
+              />
+            </label>
+            <Button variant="ghost" size="sm" onClick={resetToDefaults} title="Reset to sample projects">
+              <RotateCcw className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        }
       />
       <div className="space-y-4 p-6">
         <KPIStrip projects={state.projects} />

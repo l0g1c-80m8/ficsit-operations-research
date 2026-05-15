@@ -26,6 +26,10 @@ const WIDTH = 64;
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const CONCURRENCY = 1;
 const DELAY_MS = 350;
+const force = process.argv.includes('--force') || process.argv.includes('-f');
+const onlyMissing = process.argv.includes('--only-missing');
+if (force) console.log('(--force) re-downloading all icons, ignoring cache.');
+if (onlyMissing) console.log('(--only-missing) only retrying items listed in public/icons/_missing.json.');
 
 // Many item names have multiple historical wiki filename variants — try a few.
 function nameVariants(name) {
@@ -93,20 +97,32 @@ async function runPool(jobs) {
 
 const missing = { items: [], buildings: [] };
 
-console.log(`Downloading ${Object.keys(data.items).length} item icons…`);
-const itemJobs = Object.values(data.items).map((it) => async () => {
+let priorMissing = { items: [], buildings: [] };
+if (onlyMissing) {
+  const p = path.join(root, 'public/icons/_missing.json');
+  if (fs.existsSync(p)) priorMissing = JSON.parse(fs.readFileSync(p, 'utf8'));
+}
+const targetItems = onlyMissing
+  ? Object.values(data.items).filter((i) => priorMissing.items?.some((m) => m.className === i.className))
+  : Object.values(data.items);
+const targetBldgs = onlyMissing
+  ? Object.values(data.buildings).filter((b) => priorMissing.buildings?.some((m) => m.className === b.className))
+  : Object.values(data.buildings);
+
+console.log(`Downloading ${targetItems.length} item icons…`);
+const itemJobs = targetItems.map((it) => async () => {
   const out = path.join(outItems, `${it.className}.png`);
-  if (fs.existsSync(out)) return { ok: true, name: it.name };
+  if (!force && fs.existsSync(out)) return { ok: true, name: it.name };
   const ok = await fetchOne(it.name, out);
   if (!ok) missing.items.push({ className: it.className, name: it.name });
   return { ok, name: it.name };
 });
 await runPool(itemJobs);
 
-console.log(`\nDownloading ${Object.keys(data.buildings).length} building icons…`);
-const bldJobs = Object.values(data.buildings).map((b) => async () => {
+console.log(`\nDownloading ${targetBldgs.length} building icons…`);
+const bldJobs = targetBldgs.map((b) => async () => {
   const out = path.join(outBld, `${b.className}.png`);
-  if (fs.existsSync(out)) return { ok: true, name: b.name };
+  if (!force && fs.existsSync(out)) return { ok: true, name: b.name };
   const ok = await fetchOne(b.name, out);
   if (!ok) missing.buildings.push({ className: b.className, name: b.name });
   return { ok, name: b.name };

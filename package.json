@@ -6,6 +6,9 @@
   "scripts": {
     "data": "node scripts/prune-data.mjs",
     "icons": "node scripts/fetch-icons.mjs",
+    "icons:force": "node scripts/fetch-icons.mjs --force",
+    "icons:missing": "node scripts/fetch-icons.mjs --only-missing",
+    "refresh": "node scripts/refresh.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

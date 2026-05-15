@@ -1,0 +1,141 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dev",
+      "detail": "Run the Next.js dev server (background)",
+      "type": "npm",
+      "script": "dev",
+      "icon": { "id": "play", "color": "terminal.ansiYellow" },
+      "isBackground": true,
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "dev",
+        "clear": true
+      },
+      "problemMatcher": [
+        {
+          "owner": "next-dev",
+          "fileLocation": "absolute",
+          "pattern": [
+            {
+              "regexp": "^\\s*(✘|⨯|Error|TypeError|SyntaxError):?\\s+(.*)$",
+              "severity": 1,
+              "message": 2
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "^.*(Starting\\.\\.\\.|Compiling).*$",
+            "endsPattern": "^.*(Ready in|Compiled|compiled successfully).*$"
+          }
+        }
+      ]
+    },
+    {
+      "label": "build",
+      "detail": "Production build (next build)",
+      "type": "npm",
+      "script": "build",
+      "icon": { "id": "package", "color": "terminal.ansiBlue" },
+      "group": { "kind": "build", "isDefault": false },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "start",
+      "detail": "Run the production server (requires `build` first)",
+      "type": "npm",
+      "script": "start",
+      "icon": { "id": "rocket", "color": "terminal.ansiGreen" },
+      "isBackground": true,
+      "presentation": { "reveal": "always", "panel": "dedicated", "group": "dev", "clear": true },
+      "dependsOn": ["build"],
+      "problemMatcher": []
+    },
+    {
+      "label": "typecheck",
+      "detail": "Run tsc --noEmit",
+      "type": "npm",
+      "script": "typecheck",
+      "icon": { "id": "check", "color": "terminal.ansiCyan" },
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "lint",
+      "detail": "Run next lint",
+      "type": "npm",
+      "script": "lint",
+      "icon": { "id": "checklist", "color": "terminal.ansiMagenta" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "regenerate game data",
+      "detail": "Re-prune /tmp/sat-data.json into public/data/satisfactory.json",
+      "type": "npm",
+      "script": "data",
+      "icon": { "id": "database", "color": "terminal.ansiYellow" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "fetch game data (curl)",
+      "detail": "Download the community Docs.json into /tmp/sat-data.json",
+      "type": "shell",
+      "command": "curl -L -o /tmp/sat-data.json https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data.json",
+      "icon": { "id": "cloud-download", "color": "terminal.ansiYellow" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "refresh data (fetch + regenerate)",
+      "detail": "Curl Docs.json into /tmp then re-run the prune script",
+      "dependsOrder": "sequence",
+      "dependsOn": ["fetch game data (curl)", "regenerate game data"],
+      "icon": { "id": "sync", "color": "terminal.ansiYellow" },
+      "problemMatcher": []
+    },
+    {
+      "label": "install dependencies",
+      "detail": "npm install",
+      "type": "npm",
+      "script": "install",
+      "icon": { "id": "cloud-download", "color": "terminal.ansiBlue" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "smoke test solver",
+      "detail": "Run scripts/test-solver.mjs against the pruned data",
+      "type": "shell",
+      "command": "node",
+      "args": ["scripts/test-solver.mjs"],
+      "icon": { "id": "beaker", "color": "terminal.ansiCyan" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "clean (.next + tsbuildinfo)",
+      "detail": "Remove .next build cache and TypeScript build info",
+      "type": "shell",
+      "command": "rm",
+      "args": ["-rf", ".next", "tsconfig.tsbuildinfo"],
+      "icon": { "id": "trash", "color": "terminal.ansiRed" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "verify (typecheck + build)",
+      "detail": "Run typecheck and then a production build",
+      "dependsOrder": "sequence",
+      "dependsOn": ["typecheck", "build"],
+      "icon": { "id": "shield", "color": "terminal.ansiGreen" },
+      "problemMatcher": []
+    }
+  ]
+}

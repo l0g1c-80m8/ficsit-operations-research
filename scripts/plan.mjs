@@ -302,25 +302,23 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
 
   const variables = {};
   const constraints = {};
-  for (const it of items) constraints[`bal_${it}`] = { equal: 0 };
+
+  // For each item, production - consumption (after sinking targets) must be ≥ -supply_cap.
+  // This naturally allows byproduct surplus to be absorbed (AWESOME Sink) without
+  // forcing the LP to perfectly clear every intermediate.
+  for (const it of items) {
+    const cap = supplyByItem.get(it) ?? 0;
+    constraints[`bal_${it}`] = { min: -cap };
+  }
 
   candidate.forEach((r, idx) => {
     const v = {};
     for (const p of r.products) v[`bal_${p.item}`] = (v[`bal_${p.item}`] ?? 0) + ratePerMin(p.amount, r.time);
     for (const i of r.ingredients) v[`bal_${i.item}`] = (v[`bal_${i.item}`] ?? 0) - ratePerMin(i.amount, r.time);
-    const power = recipePowerKW(r);
-    const building = r.producedIn[0];
-    v.power = power;
-    v.machines = 1;
-    v[`bld_${building}`] = 1;
     v.obj = 0;
     variables[`x_${idx}`] = v;
   });
 
-  for (const [item, cap] of supplyByItem) {
-    variables[`supply_${item}`] = { [`bal_${item}`]: 1, [`cap_${item}`]: 1 };
-    constraints[`cap_${item}`] = { max: cap };
-  }
   for (const t of targets) {
     variables[`produced_${t.item}`] = { [`bal_${t.item}`]: -1, obj: t.weight ?? 1 };
     if (t.minRatePerMin && t.minRatePerMin > 0) {
@@ -328,18 +326,15 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
       variables[`produced_${t.item}`][`min_${t.item}`] = 1;
     }
   }
-  variables.total_power = { power: -1 };
-  variables.total_machines = { machines: -1 };
-  constraints.power = { equal: 0 };
-  constraints.machines = { equal: 0 };
-  const buildingNames = new Set();
-  for (const r of candidate) if (r.producedIn[0]) buildingNames.add(r.producedIn[0]);
-  for (const b of buildingNames) {
-    variables[`total_bld_${b}`] = { [`bld_${b}`]: -1 };
-    constraints[`bld_${b}`] = { equal: 0 };
+  if (process.env.FICSIT_DEBUG) {
+    console.error('[debug] supplies count:', suppliesEff.length, 'candidate recipes:', candidate.length, 'items:', items.size);
+    console.error('[debug] sample variables:', Object.keys(variables).slice(0, 8));
+    console.error('[debug] sample constraints:', Object.keys(constraints).slice(0, 8));
   }
-
   const result = solver.Solve({ optimize: 'obj', opType: 'max', constraints, variables });
+  if (process.env.FICSIT_DEBUG) {
+    console.error('[debug] LP result keys:', Object.keys(result).slice(0, 12), '… feasible=', result.feasible, 'bounded=', result.bounded, 'result=', result.result);
+  }
   if (!result.feasible) return { status: 'infeasible', message: 'No combination of recipes satisfies the supply/target constraints.', lines: [], suppliesUsed: suppliesEff, targets };
 
   const EPS = 1e-6;
@@ -366,7 +361,17 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
   });
 
   const outputs = targets.map((t) => ({ item: t.item, ratePerMin: result[`produced_${t.item}`] ?? 0 }));
-  const consumedInputs = suppliesEff.map((s) => ({ item: s.item, ratePerMin: result[`supply_${s.item}`] ?? 0 }));
+  // Tally actual raw consumption from recipe inputs (minus any byproducts producing the same item).
+  const consumedInputs = suppliesEff
+    .map((s) => {
+      let net = 0;
+      for (const line of lines) {
+        for (const i of line.inputs) if (i.item === s.item) net += i.ratePerMin;
+        for (const o of line.outputs) if (o.item === s.item) net -= o.ratePerMin;
+      }
+      return { item: s.item, ratePerMin: Math.max(0, net) };
+    })
+    .filter((row) => row.ratePerMin > EPS);
   return {
     status: 'optimal',
     lines,
@@ -453,11 +458,11 @@ function printPlan(plan, data, { targetItemName, topRecipes = Infinity }) {
   }
   console.log();
 
-  console.log(rule(86, '═'));
+  console.log(rule(96, '═'));
   console.log(
-    `${BOLD}${pad('RECIPE LINES', 32)} ${pad('BUILDING', 22)} ${padR('×MACHINES', 12)} ${padR('POWER', 10)} ${padR('FLAG', 6)}${RESET}`,
+    `${BOLD}${pad('RECIPE LINES', 32)} ${pad('BUILDING', 22)} ${padR('×MACHINES', 12)} ${padR('POWER', 20)} ${padR('FLAG', 6)}${RESET}`,
   );
-  console.log(rule(86));
+  console.log(rule(96));
   const sorted = plan.lines.slice().sort((a, b) => b.machines - a.machines);
   let shown = 0;
   for (const l of sorted) {
@@ -469,10 +474,10 @@ function printPlan(plan, data, { targetItemName, topRecipes = Infinity }) {
     const bldName = data.buildings[l.building]?.name ?? l.building;
     const flag = l.recipe.alternate ? `${YELLOW}ALT${RESET}` : '   ';
     const power = l.recipe.isVariablePower
-      ? `${fmt(l.recipe.minPower * l.machines)}-${fmt(l.recipe.maxPower * l.machines)}`
-      : fmt(l.powerKW);
+      ? `${fmt(l.recipe.minPower * l.machines)}–${fmt(l.recipe.maxPower * l.machines)} MW`
+      : `${fmt(l.powerKW)} MW`;
     console.log(
-      `${pad(l.recipe.name, 32)} ${pad(bldName, 22)} ${padR(fmt(l.machines, 2), 12)} ${padR(power + ' MW', 10)} ${padR(flag, 6)}`,
+      `${pad(l.recipe.name, 32)} ${pad(bldName, 22)} ${padR(fmt(l.machines, 2), 12)} ${padR(power, 20)} ${padR(flag, 6)}`,
     );
     // Flows per line
     const ins = l.inputs.map((i) => `${fmt(i.ratePerMin)}/m ${data.items[i.item]?.name ?? i.item}`).join(', ');
@@ -480,11 +485,16 @@ function printPlan(plan, data, { targetItemName, topRecipes = Infinity }) {
     console.log(`  ${DIM}in:${RESET}  ${ins}`);
     console.log(`  ${DIM}out:${RESET} ${outs}`);
   }
-  console.log(rule(86, '═'));
+  console.log(rule(96, '═'));
 
-  // AWESOME Sink value
-  const sinkOut = plan.outputs.reduce((acc, o) => acc + (data.items[o.item]?.sinkPoints ?? 0) * o.ratePerMin, 0);
-  const sinkIn = plan.consumedInputs.reduce((acc, o) => acc + (data.items[o.item]?.sinkPoints ?? 0) * o.ratePerMin, 0);
+  // AWESOME Sink value. Liquids/gases can't actually be sunk, so they're zero.
+  const sinkPts = (item) => {
+    const it = data.items[item];
+    if (!it || it.liquid) return 0;
+    return it.sinkPoints ?? 0;
+  };
+  const sinkOut = plan.outputs.reduce((acc, o) => acc + sinkPts(o.item) * o.ratePerMin, 0);
+  const sinkIn = plan.consumedInputs.reduce((acc, o) => acc + sinkPts(o.item) * o.ratePerMin, 0);
   console.log(`${BOLD}AWESOME SINK VALUE${RESET}`);
   console.log(`  output:  ${GREEN}${fmt(sinkOut).padStart(10)} pts/m${RESET}`);
   console.log(`  inputs:  ${GRAY}${fmt(sinkIn).padStart(10)} pts/m${RESET}`);

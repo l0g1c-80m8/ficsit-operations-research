@@ -99,12 +99,18 @@ export function solveFactory(
   const variables: Record<string, Record<string, number>> = {};
   const constraints: Record<string, { equal?: number; min?: number; max?: number }> = {};
 
-  // One equality constraint per item: balance = 0.
+  // One inequality per item:
+  //   net production - target sink ≥ -supply_cap
+  // i.e., consumption (after sinking targets) cannot exceed available production
+  // plus available raw supply. Surplus production is implicitly absorbed (the
+  // AWESOME Sink), so we never force byproducts to perfectly clear.
   for (const item of items) {
-    constraints[`bal_${item}`] = { equal: 0 };
+    const cap = supplyByItem.get(item) ?? 0;
+    constraints[`bal_${item}`] = { min: -cap };
   }
 
-  // Recipe variables: net contribution to each item, plus power/machine accounting.
+  // Recipe variables: net contribution to each item.
+  // Power/machine/building totals are tallied *after* the solve.
   candidateRecipes.forEach((r, idx) => {
     const v: Record<string, number> = {};
     const time = r.time;
@@ -114,24 +120,9 @@ export function solveFactory(
     for (const i of r.ingredients) {
       v[`bal_${i.item}`] = (v[`bal_${i.item}`] ?? 0) - ratePerMin(i.amount, time);
     }
-    const building = r.producedIn[0];
-    const power = recipePowerKW(r, data);
-    v.power = power;
-    v.machines = 1;
-    v[`bld_${building}`] = 1;
-    v.obj = 0; // recipes don't directly contribute to objective
+    v.obj = 0;
     variables[`x_${idx}`] = v;
   });
-
-  // Supply variables: positive net contribution to their item, capped.
-  for (const [item, cap] of supplyByItem) {
-    const key = `supply_${item}`;
-    variables[key] = {
-      [`bal_${item}`]: 1,
-      [`cap_${item}`]: 1,
-    };
-    constraints[`cap_${item}`] = { max: cap };
-  }
 
   // Production (sink) variables: only for targets, removes from the item balance.
   for (const t of targets) {
@@ -144,22 +135,6 @@ export function solveFactory(
       constraints[`min_${t.item}`] = { min: t.minRatePerMin };
       variables[key][`min_${t.item}`] = 1;
     }
-  }
-
-  // Bookkeeping variables: power and machines totals (so the result picks them up).
-  // We treat them as free non-negative variables tied to recipe contributions:
-  //   Σ recipe.power · x_r − total_power = 0
-  variables.total_power = { power: -1 };
-  variables.total_machines = { machines: -1 };
-  constraints.power = { equal: 0 };
-  constraints.machines = { equal: 0 };
-
-  // Building totals
-  const buildingNames = new Set<string>();
-  for (const r of candidateRecipes) if (r.producedIn[0]) buildingNames.add(r.producedIn[0]);
-  for (const b of buildingNames) {
-    variables[`total_bld_${b}`] = { [`bld_${b}`]: -1 };
-    constraints[`bld_${b}`] = { equal: 0 };
   }
 
   const model = {
@@ -206,10 +181,20 @@ export function solveFactory(
     item: t.item,
     ratePerMin: result[`produced_${t.item}`] ?? 0,
   }));
-  const consumedInputs = supplies.map((s) => ({
-    item: s.item,
-    ratePerMin: result[`supply_${s.item}`] ?? 0,
-  }));
+  // Compute actual raw consumption by summing recipe inputs for raw items.
+  const consumedInputs = supplies.map((s) => {
+    let consumed = 0;
+    for (const line of lines) {
+      for (const i of line.inputs) {
+        if (i.item === s.item) consumed += i.ratePerMin;
+      }
+      // Also subtract any byproduct production of this item back out
+      for (const o of line.outputs) {
+        if (o.item === s.item) consumed -= o.ratePerMin;
+      }
+    }
+    return { item: s.item, ratePerMin: Math.max(0, consumed) };
+  });
 
   return {
     status: 'optimal',

@@ -166,6 +166,26 @@
       "problemMatcher": []
     },
     {
+      "label": "CLI: plan (interactive)",
+      "detail": "Run scripts/plan.mjs in interactive prompt mode",
+      "type": "shell",
+      "command": "node",
+      "args": ["scripts/plan.mjs", "--interactive"],
+      "icon": { "id": "terminal", "color": "terminal.ansiYellow" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "CLI: list recipes",
+      "detail": "Dump every loaded recipe to stdout",
+      "type": "shell",
+      "command": "node",
+      "args": ["scripts/plan.mjs", "--list", "recipes"],
+      "icon": { "id": "list-unordered", "color": "terminal.ansiYellow" },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "problemMatcher": []
+    },
+    {
       "label": "clean (.next + tsbuildinfo)",
       "detail": "Remove .next build cache and TypeScript build info",
       "type": "shell",

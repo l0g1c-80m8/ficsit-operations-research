@@ -137,6 +137,42 @@ npm run refresh -- --legacy-u8   # pre-1.0 (Update 8) dataset, no Converter
 
 ---
 
+## 5.0 — Terminal Planner (Headless Mode)
+
+> *For Pioneers who prefer their cognitive prostheses delivered in monospace.*
+
+The full LP solver is also accessible from the terminal. No browser required, no
+state to remember, no ergonomic dignity preserved.
+
+```bash
+# Maximize Iron Plate from 120 ore/min
+npm run plan -- iron-plate --supply iron-ore=120
+
+# Diamonds from Coal via the Particle Accelerator
+npm run plan -- diamonds --supply coal=240 --rate 10
+
+# Time Crystals — Coal → Diamonds → Time Crystals (Converter), with alternates
+npm run plan -- time-crystal --raw --alts --rate 5
+
+# Rocket Fuel from the whole resource pantry
+npm run plan -- rocket-fuel --raw --alts --rate 100
+
+# Browse the recipe / item / building catalog
+npm run plan -- --list recipes
+npm run plan -- --list buildings
+
+# Prompt-driven interactive mode
+npm run plan -- --interactive
+```
+
+The script prints an ASCII-tabled summary including outputs, consumed inputs,
+total machines, power demand (with suggested generator counts at every tier),
+the building manifest, every recipe line with input/output rates, and the
+AWESOME Sink point valuation. It reads the same pruned dataset (`public/data/satisfactory.json`)
+the web UI does, so anything visible to the Calculator is visible to the CLI.
+
+---
+
 ## 3.0 — Technical Manifest
 
 For the unusually inquisitive Pioneer. FICSIT recognizes that curiosity, while

@@ -26,20 +26,24 @@ const GENERATORS: GeneratorOption[] = [
 export function Economics({ plan }: { plan: FactoryPlan }) {
   const { data } = useGameData();
 
+  // Liquids and gases can't be sunk in the AWESOME Sink — treat them as 0 pts.
+  const sinkPts = (item: string) => {
+    if (!data) return 0;
+    const it = data.items[item];
+    if (!it || it.liquid) return 0;
+    return it.sinkPoints ?? 0;
+  };
+
   const valueOut = useMemo(() => {
     if (!data) return 0;
-    return plan.outputs.reduce((acc, o) => {
-      const pts = data.items[o.item]?.sinkPoints ?? 0;
-      return acc + pts * o.ratePerMin;
-    }, 0);
+    return plan.outputs.reduce((acc, o) => acc + sinkPts(o.item) * o.ratePerMin, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, plan.outputs]);
 
   const valueIn = useMemo(() => {
     if (!data) return 0;
-    return plan.consumedInputs.reduce((acc, o) => {
-      const pts = data.items[o.item]?.sinkPoints ?? 0;
-      return acc + pts * o.ratePerMin;
-    }, 0);
+    return plan.consumedInputs.reduce((acc, o) => acc + sinkPts(o.item) * o.ratePerMin, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, plan.consumedInputs]);
 
   const valueNet = valueOut - valueIn;
@@ -73,7 +77,7 @@ export function Economics({ plan }: { plan: FactoryPlan }) {
                   .map((o) => ({
                     item: o.item,
                     rate: o.ratePerMin,
-                    pts: data.items[o.item]?.sinkPoints ?? 0,
+                    pts: sinkPts(o.item),
                   }))
                   .sort((a, b) => b.pts * b.rate - a.pts * a.rate)
                   .map((row) => (

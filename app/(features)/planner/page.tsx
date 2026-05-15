@@ -1,164 +1,198 @@
 'use client';
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { PageHeader } from '@/components/shell/AppShell';
-import { Card, CardBody, CardHeader } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Badge } from '@/components/ui/Badge';
-import { CheckCircle2, Circle, Plus, Trash2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-
-interface Project {
-  id: string;
-  name: string;
-  milestone: string;
-  tasks: { id: string; text: string; done: boolean }[];
-}
-
-const DEFAULT_PROJECTS: Project[] = [
-  {
-    id: 'p1',
-    name: 'Phase 1 — Iron Plate Foundry',
-    milestone: 'Tier 1',
-    tasks: [
-      { id: 't1', text: 'Place 8 Miner Mk.1 on Northern Forest iron nodes', done: true },
-      { id: 't2', text: 'Run 480 ore/min into Smelter array (8x at 100%)', done: true },
-      { id: 't3', text: 'Build 8x Constructor for Iron Plate', done: false },
-      { id: 't4', text: 'Belt to central storage hub', done: false },
-    ],
-  },
-  {
-    id: 'p2',
-    name: 'Phase 2 — Aluminum',
-    milestone: 'Tier 7',
-    tasks: [
-      { id: 't1', text: 'Survey Bauxite + Water near Spire Coast', done: false },
-      { id: 't2', text: 'Determine Sloppy Alumina vs. standard alt', done: false },
-    ],
-  },
-];
+import { useLocalStorage } from '@/lib/storage/use-local-storage';
+import { DEFAULT_STATE, PLANNER_KEY, type PlannerState, type Project, type Task } from '@/lib/planner/types';
+import { KPIStrip } from '@/components/planner/KPIStrip';
+import { ProjectList } from '@/components/planner/ProjectList';
+import { ProjectDetail } from '@/components/planner/ProjectDetail';
 
 export default function PlannerPage() {
-  const [projects, setProjects] = useState<Project[]>(DEFAULT_PROJECTS);
-  const [name, setName] = useState('');
+  const [state, setState] = useLocalStorage<PlannerState>(PLANNER_KEY, DEFAULT_STATE);
+  const active = useMemo(() => state.projects.find((p) => p.id === state.activeId) ?? null, [state]);
 
-  const total = projects.reduce((acc, p) => acc + p.tasks.length, 0);
-  const done = projects.reduce((acc, p) => acc + p.tasks.filter((t) => t.done).length, 0);
+  function log(kind: Parameters<typeof appendActivity>[0], projectId: string, message: string) {
+    setState((s) => appendActivity(kind, projectId, message, s));
+  }
+
+  function createProject() {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const project: Project = {
+      id,
+      name: `New Project ${state.projects.length + 1}`,
+      tier: 0,
+      status: 'planning',
+      description: '',
+      tasks: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    setState((s) => ({
+      ...s,
+      projects: [...s.projects, project],
+      activeId: id,
+      activity: [
+        ...s.activity,
+        { id: crypto.randomUUID(), at: now, kind: 'project.create', projectId: id, message: `Created project "${project.name}".` },
+      ],
+    }));
+  }
+
+  function patchProject(patch: Partial<Project>) {
+    if (!active) return;
+    setState((s) => ({
+      ...s,
+      projects: s.projects.map((p) => (p.id === active.id ? { ...p, ...patch, updatedAt: Date.now() } : p)),
+      activity: [
+        ...s.activity,
+        {
+          id: crypto.randomUUID(),
+          at: Date.now(),
+          kind: 'project.edit',
+          projectId: active.id,
+          message: `Updated ${Object.keys(patch).join(', ')}.`,
+        },
+      ],
+    }));
+  }
+
+  function deleteProject() {
+    if (!active) return;
+    if (!confirm(`Delete project "${active.name}"? This cannot be undone.`)) return;
+    setState((s) => {
+      const projects = s.projects.filter((p) => p.id !== active.id);
+      return {
+        ...s,
+        projects,
+        activeId: projects[0]?.id ?? null,
+        activity: [
+          ...s.activity,
+          { id: crypto.randomUUID(), at: Date.now(), kind: 'project.delete', projectId: active.id, message: `Deleted project "${active.name}".` },
+        ],
+      };
+    });
+  }
+
+  function addTask(text: string) {
+    if (!active) return;
+    const t: Task = {
+      id: crypto.randomUUID(),
+      text,
+      status: 'todo',
+      priority: 'med',
+      createdAt: Date.now(),
+    };
+    setState((s) => ({
+      ...s,
+      projects: s.projects.map((p) =>
+        p.id === active.id ? { ...p, tasks: [...p.tasks, t], updatedAt: Date.now() } : p,
+      ),
+      activity: [
+        ...s.activity,
+        { id: crypto.randomUUID(), at: Date.now(), kind: 'task.add', projectId: active.id, message: `Added task: "${text}".` },
+      ],
+    }));
+  }
+
+  function updateTask(taskId: string, patch: Partial<Task>) {
+    if (!active) return;
+    setState((s) => ({
+      ...s,
+      projects: s.projects.map((p) =>
+        p.id === active.id
+          ? {
+              ...p,
+              tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t)),
+              updatedAt: Date.now(),
+            }
+          : p,
+      ),
+      activity:
+        'status' in patch
+          ? [
+              ...s.activity,
+              {
+                id: crypto.randomUUID(),
+                at: Date.now(),
+                kind: 'task.status',
+                projectId: active.id,
+                message: `Task → ${patch.status}: "${
+                  active.tasks.find((t) => t.id === taskId)?.text ?? taskId
+                }".`,
+              },
+            ]
+          : s.activity,
+    }));
+  }
+
+  function deleteTask(taskId: string) {
+    if (!active) return;
+    const t = active.tasks.find((x) => x.id === taskId);
+    setState((s) => ({
+      ...s,
+      projects: s.projects.map((p) =>
+        p.id === active.id ? { ...p, tasks: p.tasks.filter((x) => x.id !== taskId), updatedAt: Date.now() } : p,
+      ),
+      activity: [
+        ...s.activity,
+        { id: crypto.randomUUID(), at: Date.now(), kind: 'task.delete', projectId: active.id, message: `Removed task: "${t?.text ?? taskId}".` },
+      ],
+    }));
+  }
+
+  function selectProject(id: string) {
+    setState((s) => ({ ...s, activeId: id }));
+  }
+
+  // unused but kept for clarity if/when needed:
+  void log;
+
+  const activitySorted = useMemo(() => state.activity.slice().sort((a, b) => b.at - a.at), [state.activity]);
 
   return (
     <>
       <PageHeader
         title="Planner"
-        subtitle={`${done} / ${total} tasks complete across ${projects.length} projects`}
+        subtitle="Track factory expansion across tiers — UniFi-style master/detail with live state."
       />
       <div className="space-y-4 p-6">
-        <Card>
-          <CardHeader title="New Project" />
-          <CardBody className="flex items-center gap-2">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name" />
-            <Button
-              onClick={() => {
-                if (!name.trim()) return;
-                setProjects((ps) => [
-                  ...ps,
-                  { id: crypto.randomUUID(), name, milestone: '—', tasks: [] },
-                ]);
-                setName('');
-              }}
-            >
-              <Plus className="h-4 w-4" /> Add
-            </Button>
-          </CardBody>
-        </Card>
+        <KPIStrip projects={state.projects} />
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {projects.map((p) => (
-            <ProjectCard
-              key={p.id}
-              project={p}
-              onChange={(np) =>
-                setProjects((ps) => ps.map((x) => (x.id === p.id ? np : x)))
-              }
-              onRemove={() => setProjects((ps) => ps.filter((x) => x.id !== p.id))}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
+          <div className="rounded-lg border border-ficsit-border bg-ficsit-panel min-h-[60vh]">
+            <ProjectList
+              projects={state.projects}
+              activeId={state.activeId}
+              onSelect={selectProject}
+              onCreate={createProject}
             />
-          ))}
+          </div>
+          <div className="overflow-hidden rounded-lg border border-ficsit-border bg-ficsit-panel min-h-[60vh]">
+            <ProjectDetail
+              project={active}
+              activity={activitySorted}
+              onEdit={patchProject}
+              onAddTask={addTask}
+              onUpdateTask={updateTask}
+              onDeleteTask={deleteTask}
+              onDeleteProject={deleteProject}
+            />
+          </div>
         </div>
       </div>
     </>
   );
 }
 
-function ProjectCard({
-  project,
-  onChange,
-  onRemove,
-}: {
-  project: Project;
-  onChange: (p: Project) => void;
-  onRemove: () => void;
-}) {
-  const [task, setTask] = useState('');
-  const done = project.tasks.filter((t) => t.done).length;
-  return (
-    <Card>
-      <CardHeader
-        title={project.name}
-        subtitle={`${done} / ${project.tasks.length} complete`}
-        right={
-          <div className="flex items-center gap-1">
-            <Badge tone="accent">{project.milestone}</Badge>
-            <Button variant="ghost" size="sm" onClick={onRemove} aria-label="Remove project">
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        }
-      />
-      <CardBody className="space-y-2">
-        <ul className="space-y-1">
-          {project.tasks.map((t) => (
-            <li key={t.id}>
-              <button
-                className={cn(
-                  'flex w-full items-start gap-2 rounded px-1 py-1 text-left text-sm hover:bg-ficsit-panel2',
-                  t.done && 'text-ficsit-subtle line-through',
-                )}
-                onClick={() =>
-                  onChange({
-                    ...project,
-                    tasks: project.tasks.map((x) => (x.id === t.id ? { ...x, done: !x.done } : x)),
-                  })
-                }
-              >
-                {t.done ? (
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-ficsit-good" />
-                ) : (
-                  <Circle className="mt-0.5 h-4 w-4 shrink-0 text-ficsit-subtle" />
-                )}
-                <span>{t.text}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="flex items-center gap-2 pt-1">
-          <Input
-            value={task}
-            onChange={(e) => setTask(e.target.value)}
-            placeholder="Add task…"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && task.trim()) {
-                onChange({
-                  ...project,
-                  tasks: [
-                    ...project.tasks,
-                    { id: crypto.randomUUID(), text: task.trim(), done: false },
-                  ],
-                });
-                setTask('');
-              }
-            }}
-          />
-        </div>
-      </CardBody>
-    </Card>
-  );
+function appendActivity(
+  kind: 'task.add' | 'task.status' | 'task.delete' | 'project.create' | 'project.edit' | 'project.delete',
+  projectId: string,
+  message: string,
+  s: PlannerState,
+): PlannerState {
+  return {
+    ...s,
+    activity: [...s.activity, { id: crypto.randomUUID(), at: Date.now(), kind, projectId, message }],
+  };
 }

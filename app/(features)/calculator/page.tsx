@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ItemBadge } from '@/components/ui/ItemBadge';
+import { ItemIcon } from '@/components/ui/ItemIcon';
 import { useGameData } from '@/lib/data/use-data';
 import { fmt } from '@/lib/utils';
 import { solveFactory, type FactoryPlan } from '@/lib/solver/factory-solver';
@@ -277,11 +278,18 @@ function PlanView({ plan }: { plan: FactoryPlan | null }) {
 
       <Card>
         <CardHeader title="Building Manifest" />
-        <CardBody className="space-y-1">
+        <CardBody className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {plan.buildingsByType.map((b) => (
-            <div key={b.building} className="flex items-center justify-between text-sm">
-              <span>{data?.buildings[b.building]?.name ?? b.building}</span>
-              <span className="font-mono text-ficsit-accent">{fmt(b.machines, 1)}</span>
+            <div
+              key={b.building}
+              className="flex items-center gap-3 rounded-md border border-ficsit-border bg-ficsit-panel2 px-3 py-2"
+            >
+              <ItemIcon className={b.building} kind="building" size={32} cls="rounded-md p-0.5 bg-ficsit-panel" />
+              <div className="flex-1 text-sm">{data?.buildings[b.building]?.name ?? b.building}</div>
+              <div className="text-right">
+                <div className="font-mono text-lg text-ficsit-accent">{fmt(b.machines, 1)}</div>
+                <div className="text-[10px] uppercase tracking-wide text-ficsit-subtle">machines</div>
+              </div>
             </div>
           ))}
         </CardBody>
@@ -306,10 +314,22 @@ function PlanView({ plan }: { plan: FactoryPlan | null }) {
                 .map((l, i) => (
                   <tr key={i} className="border-t border-ficsit-border">
                     <td className="py-1.5">
-                      {l.recipe.name}
-                      {l.recipe.alternate && <Badge tone="warn" className="ml-1">Alt</Badge>}
+                      <div className="flex items-center gap-2">
+                        <ItemIcon
+                          className={l.recipe.products[0]?.item ?? ''}
+                          size={22}
+                          cls="rounded-sm bg-ficsit-panel2 p-0.5"
+                        />
+                        <span>{l.recipe.name}</span>
+                        {l.recipe.alternate && <Badge tone="warn">Alt</Badge>}
+                      </div>
                     </td>
-                    <td>{data?.buildings[l.building]?.name ?? l.building}</td>
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        <ItemIcon className={l.building} kind="building" size={18} />
+                        {data?.buildings[l.building]?.name ?? l.building}
+                      </div>
+                    </td>
                     <td className="text-right font-mono">{fmt(l.machines, 2)}</td>
                     <td className="text-right font-mono">{fmt(l.powerKW)} MW</td>
                   </tr>

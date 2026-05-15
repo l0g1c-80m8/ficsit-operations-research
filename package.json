@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "data": "node scripts/prune-data.mjs",
+    "icons": "node scripts/fetch-icons.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

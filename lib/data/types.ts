@@ -75,6 +75,8 @@ export interface SatMiner {
 }
 
 export interface SatData {
+  buildId?: string;
+  builtAt?: string;
   items: Record<ClassName, SatItem>;
   buildings: Record<ClassName, SatBuilding>;
   recipes: SatRecipe[];

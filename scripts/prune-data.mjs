@@ -94,11 +94,28 @@ for (const [k, v] of Object.entries(src.resources)) {
 const generators = Object.values(src.generators);
 const miners = Object.values(src.miners);
 
-const out = { items, buildings, recipes, resources, generators, miners };
+// Stamp every prune with a build identifier so the browser knows when the data
+// changed. The loader appends this to the URL as ?v=… to force a refetch.
+const buildId = `${new Date().toISOString().replace(/[:.]/g, '-')}-r${recipes.length}-b${Object.keys(buildings).length}`;
+
+const out = {
+  buildId,
+  builtAt: new Date().toISOString(),
+  items,
+  buildings,
+  recipes,
+  resources,
+  generators,
+  miners,
+};
 
 const outPath = path.join(root, 'public', 'data', 'satisfactory.json');
 fs.writeFileSync(outPath, JSON.stringify(out));
+// Side-car version file the loader can hit cheaply before the big payload.
+fs.writeFileSync(path.join(root, 'public', 'data', 'version.json'), JSON.stringify({ buildId, builtAt: out.builtAt }));
+
 const bytes = fs.statSync(outPath).size;
 console.log(`Wrote ${outPath}`);
+console.log(`  buildId=${buildId}`);
 console.log(`  items=${Object.keys(items).length} buildings=${Object.keys(buildings).length} recipes=${recipes.length} resources=${Object.keys(resources).length} generators=${generators.length} miners=${miners.length}`);
 console.log(`  size=${(bytes / 1024).toFixed(1)} KB`);

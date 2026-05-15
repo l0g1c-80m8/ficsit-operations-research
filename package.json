@@ -9,6 +9,7 @@
     "icons:force": "node scripts/fetch-icons.mjs --force",
     "icons:missing": "node scripts/fetch-icons.mjs --only-missing",
     "refresh": "node scripts/refresh.mjs",
+    "plan": "node scripts/plan.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

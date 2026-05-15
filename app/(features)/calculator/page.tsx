@@ -21,7 +21,10 @@ import {
   type CalcSaveEntry,
 } from '@/lib/calculator/types';
 import { CalcHistory } from '@/components/calculator/CalcHistory';
-import { History, Play, Plus, Save, Trash2 } from 'lucide-react';
+import { PlanGraph } from '@/components/calculator/PlanGraph';
+import { Economics } from '@/components/calculator/Economics';
+import { Activity, BarChart3, History, ListTree, Network, Play, Plus, Save, Trash2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function CalculatorPage() {
   const { data, loading } = useGameData();
@@ -307,7 +310,10 @@ function RateRow({
   );
 }
 
+type PlanTab = 'summary' | 'graph' | 'economics' | 'recipes';
+
 function PlanView({ plan }: { plan: FactoryPlan | null }) {
+  const [tab, setTab] = useState<PlanTab>('summary');
   const { data } = useGameData();
 
   if (!plan) {
@@ -344,6 +350,41 @@ function PlanView({ plan }: { plan: FactoryPlan | null }) {
         </CardBody>
       </Card>
 
+      <div className="flex items-end gap-1 border-b border-ficsit-border">
+        {([
+          { id: 'summary', label: 'Summary', icon: BarChart3 },
+          { id: 'graph', label: 'Graph', icon: Network },
+          { id: 'economics', label: 'Economics', icon: Activity },
+          { id: 'recipes', label: 'Recipes', icon: ListTree },
+        ] as { id: PlanTab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              'inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors',
+              tab === t.id
+                ? 'border-ficsit-accent text-ficsit-text'
+                : 'border-transparent text-ficsit-subtle hover:text-ficsit-text',
+            )}
+          >
+            <t.icon className="h-3.5 w-3.5" />
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'summary' && <SummaryTab plan={plan} />}
+      {tab === 'graph' && <PlanGraph plan={plan} />}
+      {tab === 'economics' && <Economics plan={plan} />}
+      {tab === 'recipes' && <RecipesTab plan={plan} />}
+    </div>
+  );
+}
+
+function SummaryTab({ plan }: { plan: FactoryPlan }) {
+  const { data } = useGameData();
+  return (
+    <div className="space-y-4">
       <Card>
         <CardHeader title="Outputs" />
         <CardBody className="flex flex-wrap gap-2">
@@ -386,51 +427,56 @@ function PlanView({ plan }: { plan: FactoryPlan | null }) {
           ))}
         </CardBody>
       </Card>
-
-      <Card>
-        <CardHeader title="Recipe Lines" subtitle="Machines at 100% clock. Overclock to round up." />
-        <CardBody>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs uppercase text-ficsit-subtle">
-                <th className="text-left py-2">Recipe</th>
-                <th className="text-left">Building</th>
-                <th className="text-right">Machines</th>
-                <th className="text-right">Power</th>
-              </tr>
-            </thead>
-            <tbody>
-              {plan.lines
-                .slice()
-                .sort((a, b) => b.machines - a.machines)
-                .map((l, i) => (
-                  <tr key={i} className="border-t border-ficsit-border">
-                    <td className="py-1.5">
-                      <div className="flex items-center gap-2">
-                        <ItemIcon
-                          className={l.recipe.products[0]?.item ?? ''}
-                          size={22}
-                          cls="rounded-sm bg-ficsit-panel2 p-0.5"
-                        />
-                        <span>{l.recipe.name}</span>
-                        {l.recipe.alternate && <Badge tone="warn">Alt</Badge>}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1.5">
-                        <ItemIcon className={l.building} kind="building" size={18} />
-                        {data?.buildings[l.building]?.name ?? l.building}
-                      </div>
-                    </td>
-                    <td className="text-right font-mono">{fmt(l.machines, 2)}</td>
-                    <td className="text-right font-mono">{fmt(l.powerKW)} MW</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </CardBody>
-      </Card>
     </div>
+  );
+}
+
+function RecipesTab({ plan }: { plan: FactoryPlan }) {
+  const { data } = useGameData();
+  return (
+    <Card>
+      <CardHeader title="Recipe Lines" subtitle="Machines at 100% clock. Overclock to round up." />
+      <CardBody>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs uppercase text-ficsit-subtle">
+              <th className="text-left py-2">Recipe</th>
+              <th className="text-left">Building</th>
+              <th className="text-right">Machines</th>
+              <th className="text-right">Power</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plan.lines
+              .slice()
+              .sort((a, b) => b.machines - a.machines)
+              .map((l, i) => (
+                <tr key={i} className="border-t border-ficsit-border">
+                  <td className="py-1.5">
+                    <div className="flex items-center gap-2">
+                      <ItemIcon
+                        className={l.recipe.products[0]?.item ?? ''}
+                        size={22}
+                        cls="rounded-sm bg-ficsit-panel2 p-0.5"
+                      />
+                      <span>{l.recipe.name}</span>
+                      {l.recipe.alternate && <Badge tone="warn">Alt</Badge>}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="flex items-center gap-1.5">
+                      <ItemIcon className={l.building} kind="building" size={18} />
+                      {data?.buildings[l.building]?.name ?? l.building}
+                    </div>
+                  </td>
+                  <td className="text-right font-mono">{fmt(l.machines, 2)}</td>
+                  <td className="text-right font-mono">{fmt(l.powerKW)} MW</td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </CardBody>
+    </Card>
   );
 }
 

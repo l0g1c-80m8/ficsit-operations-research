@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useGameData } from '@/lib/data/use-data';
 
 const sections: { title: string; items: { href: string; label: string; icon: React.ComponentType<{ className?: string }> }[] }[] = [
   {
@@ -39,6 +40,7 @@ const sections: { title: string; items: { href: string; label: string; icon: Rea
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const { data } = useGameData();
 
   return (
     <aside
@@ -102,7 +104,18 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-ficsit-border px-3 py-2 text-[10px] text-ficsit-subtle">
-        {!collapsed ? 'FICSIT Inc. — Pioneer build v0.1' : 'v0.1'}
+        {collapsed ? (
+          <span title={data?.buildId ?? 'loading…'}>v0.1</span>
+        ) : data ? (
+          <div className="space-y-0.5" title={`build ${data.buildId ?? 'n/a'}`}>
+            <div>FICSIT Inc. — Pioneer build v0.1</div>
+            <div className="font-mono text-[9px] text-ficsit-accent/80">
+              {data.recipes.length}r · {Object.keys(data.items).length}i · {Object.keys(data.buildings).length}b
+            </div>
+          </div>
+        ) : (
+          <div>loading dataset…</div>
+        )}
       </div>
     </aside>
   );

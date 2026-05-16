@@ -23,6 +23,8 @@ import {
 import { CalcHistory } from '@/components/calculator/CalcHistory';
 import { PlanGraph } from '@/components/calculator/PlanGraph';
 import { Economics } from '@/components/calculator/Economics';
+import { InfeasibilityHelp } from '@/components/calculator/InfeasibilityHelp';
+import { diagnose } from '@/lib/solver/diagnose';
 import { Activity, BarChart3, History, ListTree, Network, Play, Plus, Save, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -50,10 +52,14 @@ export default function CalculatorPage() {
     setInputs((i) => ({ ...i, targets: updater(i.targets) }));
   }
 
-  function run() {
+  function run(overrides?: Partial<CalcInputs>) {
     if (!data) return;
-    const sup = inputs.supplies.filter((s) => s.item && s.rate > 0);
-    const tgt = inputs.targets.filter((t) => t.item);
+    // Apply overrides synchronously so the click that toggles a setting
+    // also re-solves with the new value (instead of waiting for the next render).
+    const eff = overrides ? { ...inputs, ...overrides } : inputs;
+    if (overrides) setInputs(eff);
+    const sup = eff.supplies.filter((s) => s.item && s.rate > 0);
+    const tgt = eff.targets.filter((t) => t.item);
     const result = solveFactory(
       data,
       sup.map((s) => ({ item: s.item, ratePerMin: s.rate })),
@@ -63,8 +69,8 @@ export default function CalculatorPage() {
         weight: 1,
       })),
       {
-        includeAlternates: inputs.allowAlternates,
-        autoSupplyRawResources: inputs.autoSupplyRaw ?? true,
+        includeAlternates: eff.allowAlternates,
+        autoSupplyRawResources: eff.autoSupplyRaw ?? true,
       },
     );
     setPlan(result);
@@ -169,7 +175,7 @@ export default function CalculatorPage() {
             <Button variant="ghost" size="sm" onClick={resetToDefaults} title="Reset to defaults">
               <Trash2 className="h-4 w-4" />
             </Button>
-            <Button onClick={run}>
+            <Button onClick={() => run()}>
               <Play className="h-4 w-4" /> Optimize
             </Button>
           </>
@@ -252,7 +258,7 @@ export default function CalculatorPage() {
                   onChange={(e) => setInputs((i) => ({ ...i, allowAlternates: e.target.checked }))}
                   className="h-4 w-4 accent-ficsit-accent"
                 />
-                Allow alternate recipes
+                Allow alternate recipes <span className="text-[10px] text-ficsit-subtle">(Hard Drive only — MAM-researched recipes are always available)</span>
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -270,7 +276,13 @@ export default function CalculatorPage() {
 
         {/* min-w-0 stops the grid item from being widened by the SVG inside PlanGraph */}
         <div className="min-w-0">
-          <PlanView plan={plan} />
+          <PlanView
+            plan={plan}
+            inputs={inputs}
+            data={data}
+            onEnableAlternates={() => run({ allowAlternates: true })}
+            onEnableAutoSupply={() => run({ autoSupplyRaw: true })}
+          />
         </div>
       </div>
 
@@ -388,9 +400,16 @@ function RateRow({
 
 type PlanTab = 'summary' | 'graph' | 'economics' | 'recipes';
 
-function PlanView({ plan }: { plan: FactoryPlan | null }) {
+interface PlanViewProps {
+  plan: FactoryPlan | null;
+  inputs: CalcInputs;
+  data: ReturnType<typeof useGameData>['data'];
+  onEnableAlternates: () => void;
+  onEnableAutoSupply: () => void;
+}
+
+function PlanView({ plan, inputs, data, onEnableAlternates, onEnableAutoSupply }: PlanViewProps) {
   const [tab, setTab] = useState<PlanTab>('summary');
-  const { data } = useGameData();
 
   if (!plan) {
     return (
@@ -405,13 +424,33 @@ function PlanView({ plan }: { plan: FactoryPlan | null }) {
   }
 
   if (plan.status !== 'optimal') {
+    const diagnosis = data
+      ? diagnose(data, {
+          supplies: inputs.supplies.filter((s) => s.item && s.rate > 0).map((s) => ({ item: s.item })),
+          targets: inputs.targets.filter((t) => t.item).map((t) => ({ item: t.item })),
+          includeAlternates: inputs.allowAlternates,
+          autoSupplyRawResources: inputs.autoSupplyRaw ?? true,
+        })
+      : null;
+
     return (
-      <Card>
-        <CardBody>
-          <Badge tone="bad">{plan.status}</Badge>
-          <p className="mt-2 text-sm text-ficsit-subtle">{plan.message ?? 'No feasible plan.'}</p>
-        </CardBody>
-      </Card>
+      <div className="space-y-3">
+        <Card>
+          <CardBody>
+            <Badge tone="bad">{plan.status}</Badge>
+            <p className="mt-2 text-sm text-ficsit-subtle">{plan.message ?? 'No feasible plan.'}</p>
+          </CardBody>
+        </Card>
+        {diagnosis && (
+          <InfeasibilityHelp
+            diagnosis={diagnosis}
+            alternatesEnabled={inputs.allowAlternates}
+            autoSupplyRaw={inputs.autoSupplyRaw ?? true}
+            onEnableAlternates={onEnableAlternates}
+            onEnableAutoSupply={onEnableAutoSupply}
+          />
+        )}
+      </div>
     );
   }
 

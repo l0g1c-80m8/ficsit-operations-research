@@ -17,11 +17,16 @@ export interface RecipeIO {
   amount: number;
 }
 
+export type RecipeUnlockType = 'milestone' | 'mam' | 'alternate' | 'other';
+
 export interface SatRecipe {
   className: ClassName;
   slug: string;
   name: string;
+  /** True ONLY for Hard Drive alternates. MAM-research recipes are NOT alternates. */
   alternate: boolean;
+  /** Source of the recipe's unlock in-game; derived from the schematic table. */
+  unlockType?: RecipeUnlockType;
   /** seconds per cycle */
   time: number;
   ingredients: RecipeIO[];

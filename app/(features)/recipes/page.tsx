@@ -13,7 +13,14 @@ import type { SatRecipe } from '@/lib/data/types';
 import { RecipeDetail } from '@/components/recipes/RecipeDetail';
 import { ArrowRight, Search, ChevronRight } from 'lucide-react';
 
-type RecipeFilter = 'all' | 'standard' | 'alternate';
+type RecipeFilter = 'all' | 'milestone' | 'mam' | 'alternate';
+
+const FILTER_LABEL: Record<RecipeFilter, string> = {
+  all: 'All',
+  milestone: 'Milestone',
+  mam: 'MAM',
+  alternate: 'Hard Drive',
+};
 
 export default function RecipesPage() {
   const { data, loading } = useGameData();
@@ -35,8 +42,10 @@ export default function RecipesPage() {
     if (!data) return [];
     const q = query.trim();
     return data.recipes.filter((r) => {
-      if (filter === 'standard' && r.alternate) return false;
-      if (filter === 'alternate' && !r.alternate) return false;
+      if (filter !== 'all') {
+        const t = r.unlockType ?? (r.alternate ? 'alternate' : 'milestone');
+        if (t !== filter) return false;
+      }
       if (building !== 'all' && !r.producedIn.includes(building)) return false;
       if (!q) return true;
       if (matchesQuery(r.name, q)) return true;
@@ -65,15 +74,14 @@ export default function RecipesPage() {
           </div>
 
           <div className="flex rounded-md border border-ficsit-border bg-ficsit-panel2 p-0.5">
-            {(['all', 'standard', 'alternate'] as RecipeFilter[]).map((f) => (
+            {(['all', 'milestone', 'mam', 'alternate'] as RecipeFilter[]).map((f) => (
               <Button
                 key={f}
                 variant={filter === f ? 'primary' : 'ghost'}
                 size="sm"
                 onClick={() => setFilter(f)}
-                className="capitalize"
               >
-                {f}
+                {FILTER_LABEL[f]}
               </Button>
             ))}
           </div>
@@ -139,7 +147,8 @@ function RecipeCard({ recipe, onOpen }: { recipe: SatRecipe; onOpen: () => void 
             <ChevronRight className="h-4 w-4 shrink-0 text-ficsit-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-ficsit-accent" />
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1">
-            {recipe.alternate && <Badge tone="warn">Alternate</Badge>}
+            {recipe.unlockType === 'alternate' && <Badge tone="warn">Hard Drive</Badge>}
+            {recipe.unlockType === 'mam' && <Badge tone="accent">MAM</Badge>}
             <Badge tone="muted">
               <ItemIcon className={building} kind="building" size={12} /> {bName}
             </Badge>

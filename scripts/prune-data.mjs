@@ -78,12 +78,57 @@ for (const [k, v] of Object.entries(src.buildings)) {
   };
 }
 
+// Build a recipe → schematic unlock map so we can classify recipes by their
+// true unlock source. Greeny's dump sets `alternate: true` for every "extra"
+// recipe (anything not on a Milestone), but MAM research recipes (Compacted
+// Coal, Turbofuel, Heavy Modular Frame, Cooked Meat, etc.) are NOT Hard Drive
+// alternates — they're researched at the MAM and considered "standard" in
+// every planning tool.
+//
+// Unlock priorities (lowest wins):
+//   1. EST_Milestone                 → 'milestone'  (true standard)
+//   2. EST_MAM                        → 'mam'        (researched; effectively standard)
+//   3. EST_Alternate / EST_HardDrive → 'alternate'  (Hard Drive crash sites)
+//   4. anything else / nothing       → 'other'
+const SCHEM_PRIORITY = { EST_Milestone: 1, EST_MAM: 2, EST_Alternate: 3, EST_HardDrive: 3, EST_Tutorial: 1 };
+const recipeUnlockType = new Map(); // className -> 'milestone' | 'mam' | 'alternate' | 'other'
+const recipeSchematics = new Map(); // className -> [{schematic, type}]
+for (const s of Object.values(src.schematics)) {
+  const recipes = s.unlock?.recipes ?? [];
+  for (const rc of recipes) {
+    if (!recipeSchematics.has(rc)) recipeSchematics.set(rc, []);
+    recipeSchematics.get(rc).push({ schematic: s.className, type: s.type, name: s.name });
+    const prio = SCHEM_PRIORITY[s.type] ?? 9;
+    const existing = recipeUnlockType.get(rc);
+    if (!existing || prio < (SCHEM_PRIORITY[existing] ?? 9)) {
+      recipeUnlockType.set(rc, s.type);
+    }
+  }
+}
+
+function classifyUnlock(typeKey) {
+  if (typeKey === 'EST_Milestone' || typeKey === 'EST_Tutorial') return 'milestone';
+  if (typeKey === 'EST_MAM') return 'mam';
+  if (typeKey === 'EST_Alternate' || typeKey === 'EST_HardDrive') return 'alternate';
+  return 'other';
+}
+
 const recipes = machineRecipes.map((r) => {
+  const unlockKey = recipeUnlockType.get(r.className);
+  const unlockType = classifyUnlock(unlockKey);
+  // True alternate = unlocked via Hard Drive (not MAM, not Milestone).
+  const isTrueAlternate = unlockType === 'alternate';
+  // Strip the misleading "Alternate: " prefix from MAM recipe names (greeny
+  // adds that to any recipe with className `Recipe_Alternate_*`, including
+  // MAM ones like Compacted Coal which in-game is just "Compacted Coal").
+  let name = r.name;
+  if (unlockType === 'mam' && name.startsWith('Alternate: ')) name = name.slice('Alternate: '.length);
   const base = {
     className: r.className,
     slug: r.slug,
-    name: r.name,
-    alternate: !!r.alternate,
+    name,
+    alternate: isTrueAlternate,
+    unlockType,
     time: r.time,
     ingredients: r.ingredients,
     products: r.products,

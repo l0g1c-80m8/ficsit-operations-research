@@ -86,7 +86,7 @@ export function PlanGraph({ plan }: { plan: FactoryPlan }) {
   }
 
   return (
-    <Card className={cn(fullscreen && 'fixed inset-4 z-40 overflow-hidden')}>
+    <Card className={cn('w-full min-w-0', fullscreen && 'fixed inset-4 z-50 overflow-hidden flex flex-col')}>
       <CardHeader
         title="Production Graph"
         subtitle="From raw inputs (left) to your targets (right). Edge labels are items/minute."
@@ -128,17 +128,20 @@ export function PlanGraph({ plan }: { plan: FactoryPlan }) {
         </div>
         <div
           className={cn(
-            'overflow-auto rounded-md border border-ficsit-border bg-ficsit-bg',
-            fullscreen ? 'h-[calc(100vh-12rem)]' : 'max-h-[70vh]',
+            'overflow-auto rounded-md border border-ficsit-border bg-ficsit-bg w-full',
+            fullscreen ? 'flex-1' : 'max-h-[70vh]',
           )}
         >
-          <svg
-            ref={svgRef}
-            viewBox={`0 0 ${lo.width} ${lo.height}`}
-            width={lo.width}
-            height={lo.height}
-            xmlns="http://www.w3.org/2000/svg"
-          >
+          {/* Wrapper at the SVG's natural size lets the parent .overflow-auto scroll. */}
+          <div style={{ width: lo.width, height: lo.height }}>
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${lo.width} ${lo.height}`}
+              width="100%"
+              height="100%"
+              preserveAspectRatio="xMinYMin meet"
+              xmlns="http://www.w3.org/2000/svg"
+            >
             <defs>
               <marker
                 id="arrow"
@@ -152,13 +155,14 @@ export function PlanGraph({ plan }: { plan: FactoryPlan }) {
                 <path d="M0,0 L10,5 L0,10 z" fill="#8b949e" />
               </marker>
             </defs>
-            {lo.edges.map((e, i) => (
-              <EdgeView key={i} edge={e} />
-            ))}
-            {lo.nodes.map((n) => (
-              <NodeView key={n.id} node={n} />
-            ))}
-          </svg>
+              {lo.edges.map((e, i) => (
+                <EdgeView key={i} edge={e} />
+              ))}
+              {lo.nodes.map((n) => (
+                <NodeView key={n.id} node={n} />
+              ))}
+            </svg>
+          </div>
         </div>
       </CardBody>
     </Card>

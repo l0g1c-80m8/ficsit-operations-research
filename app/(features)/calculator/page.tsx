@@ -264,7 +264,10 @@ export default function CalculatorPage() {
           </Card>
         </div>
 
-        <PlanView plan={plan} />
+        {/* min-w-0 stops the grid item from being widened by the SVG inside PlanGraph */}
+        <div className="min-w-0">
+          <PlanView plan={plan} />
+        </div>
       </div>
 
       <CalcHistory
@@ -332,7 +335,7 @@ function RateRow({
           <option key={o.className} value={o.className}>{o.name}</option>
         ))}
       </select>
-      <div className="relative w-32">
+      <div className="relative w-44 shrink-0">
         <Input
           type="number"
           min={0}
@@ -340,7 +343,7 @@ function RateRow({
           value={row.rate || ''}
           placeholder={placeholderRate}
           onChange={(e) => onChange({ ...row, rate: Number(e.target.value) || 0 })}
-          className="pr-8 text-right font-mono"
+          className="pr-12 text-right font-mono tabular-nums"
         />
         <span className="pointer-events-none absolute right-2 top-2 text-[10px] uppercase text-ficsit-subtle">
           {unit}

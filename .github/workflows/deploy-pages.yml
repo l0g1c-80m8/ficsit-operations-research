@@ -53,11 +53,29 @@ jobs:
         run: npm run build
 
       - name: Configure Pages
+        id: configure
+        # NOTE: We do NOT pass `enablement: true` here. That flag requires admin
+        # scope on the token, which the default GITHUB_TOKEN does not have. A
+        # one-time manual enable is needed instead — see the friendly error
+        # below if this step fails.
         uses: actions/configure-pages@v5
-        with:
-          # Auto-enable Pages on first run so you don't have to flip the
-          # Settings → Pages switch manually before the first deploy.
-          enablement: true
+        continue-on-error: true
+
+      - name: Friendly Pages-not-enabled error
+        if: steps.configure.outcome == 'failure'
+        run: |
+          cat <<'EOF'
+          ::error title=GitHub Pages is not enabled::Pages must be enabled once on this repository before the workflow can deploy.
+
+          One-time setup:
+            1. Open Settings → Pages on this repository.
+            2. Under "Build and deployment → Source", choose **GitHub Actions**.
+            3. Re-run this workflow (Actions → Deploy to GitHub Pages → Re-run all jobs).
+
+          (This step exists because actions/configure-pages cannot auto-enable
+          Pages with the default GITHUB_TOKEN; doing so requires an admin PAT.)
+          EOF
+          exit 1
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

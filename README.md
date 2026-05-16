@@ -298,12 +298,20 @@ Actions workflow that builds and publishes it on every push to `main` or `develo
 
 ### 4.1 — One-time setup
 
-1. **Settings → Pages → Source** → set to *GitHub Actions*.
+> ⚠ **You must enable Pages once manually** before the first workflow run.
+> GitHub's default `GITHUB_TOKEN` does not have permission to create a Pages
+> site from scratch, so the `configure-pages` action will fail with
+> *"Resource not accessible by integration"* if you skip this step.
+
+1. **Settings → Pages → Source** → choose **GitHub Actions**.
 2. Push to `main` (or `develop`). The workflow at
    `.github/workflows/deploy-pages.yml` runs automatically. You can also trigger
    it manually under *Actions → Deploy to GitHub Pages → Run workflow*.
 3. The first run completes in ~2 minutes; subsequent runs cache `node_modules`
    and finish faster.
+
+If you skip step 1, the workflow fails with a clear in-log message telling you
+exactly which switch to flip. Re-run the job once you've enabled Pages.
 
 Your site will be served at:
 

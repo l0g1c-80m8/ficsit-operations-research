@@ -91,16 +91,28 @@ export default function CalculatorPage() {
       id: crypto.randomUUID(),
       name: name.trim(),
       savedAt: Date.now(),
-      inputs,
+      // Snapshot inputs — without this, later edits to the form mutate the
+      // history entry (because supplies/targets are shared array references).
+      inputs: structuredClone(inputs),
       summary: plan ? summarizePlan(plan) : null,
     };
     setHistory((h) => [entry, ...h]);
   }
 
   function loadEntry(entry: CalcSaveEntry) {
-    setInputs(entry.inputs);
-    setPlan(null);
+    // Build a fresh inputs object: defaults first (so older saves missing
+    // newer fields like autoSupplyRaw still work), then the cloned snapshot.
+    // The deep clone is essential — without it, the in-memory history entry
+    // and the active form share references, so React's Object.is bail-out
+    // would silently skip the re-render when you load a plan you just saved.
+    const cloned: CalcInputs = {
+      ...DEFAULT_INPUTS,
+      ...structuredClone(entry.inputs),
+    };
+    setInputs(cloned);
     setShowHistory(false);
+    // Re-solve so the right pane visibly updates with the loaded plan.
+    run(cloned);
   }
 
   function deleteEntry(id: string) {

@@ -193,7 +193,7 @@ export default function CalculatorPage() {
               )}
               {inputs.supplies.map((row, idx) => (
                 <RateRow
-                  key={idx}
+                  key={row.id ?? `s-${idx}`}
                   row={row}
                   options={allItems}
                   unit="/m"
@@ -204,7 +204,9 @@ export default function CalculatorPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setSupplies((s) => [...s, { item: '', rate: 0 }])}
+                onClick={() =>
+                  setSupplies((s) => [...s, { id: crypto.randomUUID(), item: '', rate: 0 }])
+                }
               >
                 <Plus className="h-3.5 w-3.5" /> Add cap
               </Button>
@@ -219,7 +221,7 @@ export default function CalculatorPage() {
             <CardBody className="space-y-2">
               {inputs.targets.map((row, idx) => (
                 <RateRow
-                  key={idx}
+                  key={row.id ?? `t-${idx}`}
                   row={row}
                   options={allItems}
                   unit="/m min"
@@ -231,7 +233,9 @@ export default function CalculatorPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setTargets((s) => [...s, { item: '', rate: 0 }])}
+                onClick={() =>
+                  setTargets((s) => [...s, { id: crypto.randomUUID(), item: '', rate: 0 }])
+                }
               >
                 <Plus className="h-3.5 w-3.5" /> Add target
               </Button>
@@ -323,35 +327,61 @@ function RateRow({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      {row.item && <ItemIcon className={row.item} size={28} cls="rounded-md bg-ficsit-panel2 p-0.5" />}
-      <select
-        value={row.item}
-        onChange={(e) => onChange({ ...row, item: e.target.value })}
-        className="h-9 flex-1 rounded-md border border-ficsit-border bg-ficsit-panel2 px-2 text-sm"
-      >
-        <option value="">— select item —</option>
-        {options.map((o) => (
-          <option key={o.className} value={o.className}>{o.name}</option>
-        ))}
-      </select>
-      <div className="relative w-44 shrink-0">
-        <Input
-          type="number"
-          min={0}
-          step="any"
-          value={row.rate || ''}
-          placeholder={placeholderRate}
-          onChange={(e) => onChange({ ...row, rate: Number(e.target.value) || 0 })}
-          className="pr-12 text-right font-mono tabular-nums"
-        />
-        <span className="pointer-events-none absolute right-2 top-2 text-[10px] uppercase text-ficsit-subtle">
-          {unit}
-        </span>
+    <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+      {/* Item picker — takes the row on its own on narrow widths */}
+      <div className="flex min-w-0 flex-1 basis-full items-center gap-2 sm:basis-auto">
+        {row.item ? (
+          <ItemIcon
+            className={row.item}
+            size={28}
+            cls="rounded-md bg-ficsit-panel2 p-0.5 shrink-0"
+          />
+        ) : (
+          <div className="h-7 w-7 shrink-0 rounded-md border border-dashed border-ficsit-border bg-ficsit-panel2/40" />
+        )}
+        <select
+          value={row.item}
+          onChange={(e) => onChange({ ...row, item: e.target.value })}
+          className="h-9 w-full min-w-0 flex-1 rounded-md border border-ficsit-border bg-ficsit-panel2 px-2 text-sm"
+        >
+          <option value="">— select item —</option>
+          {options.map((o) => (
+            <option key={o.className} value={o.className}>{o.name}</option>
+          ))}
+        </select>
       </div>
-      <Button variant="ghost" size="sm" onClick={onRemove}>
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
+
+      {/* Rate input + remove button — stay together as a unit */}
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="relative w-32">
+          <Input
+            type="number"
+            min={0}
+            step="any"
+            value={row.rate || ''}
+            placeholder={placeholderRate}
+            onChange={(e) => onChange({ ...row, rate: Number(e.target.value) || 0 })}
+            className="pr-12 text-right font-mono tabular-nums"
+          />
+          <span className="pointer-events-none absolute right-2 top-2 text-[10px] uppercase text-ficsit-subtle">
+            {unit}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label="Remove row"
+          title="Remove row"
+          className={cn(
+            'inline-grid h-9 w-9 shrink-0 place-items-center rounded-md border border-ficsit-border',
+            'bg-ficsit-panel2 text-ficsit-subtle transition-colors',
+            'hover:border-ficsit-bad/50 hover:bg-ficsit-bad/15 hover:text-ficsit-bad',
+            'focus:outline-none focus:ring-2 focus:ring-ficsit-bad/40',
+          )}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   );
 }

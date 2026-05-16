@@ -1,6 +1,8 @@
 import type { FactoryPlan } from '@/lib/solver/factory-solver';
 
 export interface CalcRow {
+  /** stable id for React keys — survives reordering and deletion. */
+  id?: string;
   item: string;
   rate: number;
 }
@@ -38,7 +40,7 @@ export const CALC_HISTORY_KEY = 'ficsit.calculator.history.v1';
 export const DEFAULT_INPUTS: CalcInputs = {
   // Empty by default — raw resources auto-supplied. Users add a row only to cap one.
   supplies: [],
-  targets: [{ item: 'Desc_IronPlate_C', rate: 60 }],
+  targets: [{ id: 'tgt-default', item: 'Desc_IronPlate_C', rate: 60 }],
   allowAlternates: false,
   autoSupplyRaw: true,
 };

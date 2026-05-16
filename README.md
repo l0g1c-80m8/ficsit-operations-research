@@ -62,38 +62,102 @@ from here if it wished.
 
 A complete archive of every machine-driven production recipe currently
 authorized on this planet, including alternates recovered from Crash Site Hard
-Drives. Search and filter by:
+Drives. Features:
 
-- Ingredient or product
-- Manufacturing apparatus (Constructor, Assembler, Manufacturer, Refinery,
-  Foundry, Smelter, Packager, Blender, Particle Accelerator)
-- Standard / Alternate
+- **Search** with spelling tolerance — *Sulphuric Acid*, *Aluminium Ingot*,
+  *Colour Cartridge*, *Iron-Plate* all resolve to their canonical entries
+- **Filter** by standard / alternate, by producing apparatus, or by free text
+- **Detailed drawer view** (click any card) with per-cycle and per-minute flow,
+  building info with power range, sister-recipes that make the same product,
+  consumers, and producers of every input
+- **Variable-power recipes** (Converter, Quantum Encoder, Particle Accelerator)
+  display their full *min–max MW* range in an accent badge
 
 Alternate recipe usage will reflect favorably in your annual FICSIT
 Productivity Review. Alternate recipe non-use will be noted.
 
-### 1.4 — Production Calculator · `/calculator`
+### 1.4 — Building Browser · `/buildings`
 
-The principal output of this package. Pioneer provides:
+Every building currently authorized for Pioneer construction:
 
-- The raw input rates currently available to them (items per minute)
-- The output good(s) they wish to produce
+- **Production apparatus** (Smelter, Foundry, Constructor, Assembler, Manufacturer,
+  Refinery, Packager, Blender, Particle Accelerator, Converter, Quantum Encoder)
+- **Extractors** (Miner Mk.1/2/3, Oil Extractor, Water Extractor, Resource Well
+  Extractor + Pressurizer)
+- **Generators & power** (Biomass Burner, Coal-, Fuel-, Nuclear-Powered Generator,
+  Geothermal Generator, Alien Power Augmenter)
+- **Support** (Pipeline Pump Mk.1/2)
+
+Each card surfaces icon, description, power draw (or output for generators), and
+a collapsible list of every recipe that runs in it.
+
+### 1.5 — Production Calculator · `/calculator`
+
+The principal cognitive prosthesis. Pioneer provides:
+
+- A list of output goods to produce, by item and required rate per minute
+- *Optional* supply caps for individual raw inputs
 
 The subsystem then solves a linear program across all permitted recipes and
-returns a complete, optimal Project Assembly plan:
+returns a complete, optimal Project Assembly plan with **four output tabs**:
 
-- Recipe selection
-- Per-recipe machine counts at 100% clock (overclock or duplicate to round)
-- Aggregate building manifest by structure type
-- Total electrical demand in megawatts
+| Tab | Contents |
+| --- | --- |
+| **Summary** | Targets achieved · raw inputs consumed (with cap utilization %) · building manifest with per-type machine counts |
+| **Graph** | Topographic production-chain rendering (left-to-right, item ↔ recipe bipartite graph) with downloadable exports — **SVG** (icons inlined as base64, fully portable), **PNG**, **DOT** (Graphviz), **JSON** |
+| **Economics** | AWESOME Sink point valuation in/out/net · power-infrastructure suggestions at every generator tier (Biomass Burner, Coal, Fuel, Nuclear) with required unit counts and headroom |
+| **Recipes** | Every recipe line with machine count, building, and power demand (including variable-power ranges) |
+
+#### Operating modes
+
+The objective auto-switches based on Pioneer intent:
+
+- **Fixed-rate mode** — when a target has a positive rate, the LP **minimizes
+  total machines** subject to producing *at least* that rate. The result is the
+  smallest factory that achieves the goal.
+- **Maximize mode** — when no rate is given, the LP **maximizes weighted output**
+  subject to your supply caps. Tells you how much you can produce.
+
+#### Auto-supply
+
+Raw resources not in the supply list are treated as **unlimited** by default.
+A Pioneer wishing to produce 60 Iron Plate per minute need only specify that
+single target — the planner assumes Iron Ore is available. Toggle the
+*Auto-supply unspecified raw resources* option off to enforce strict mode.
+
+#### Persistence and history
+
+- Inputs auto-save to `localStorage` after every keystroke
+- The **Save plan** button captures the current setup + result summary into a
+  named history entry
+- The **History** drawer lists every saved plan with output icons, machine
+  count, power, recipe count; restore, delete, **Export JSON**, **Import JSON**
+- A **Reset** button restores defaults
 
 Toggle *Allow alternate recipes* once you have liberated the relevant Hard
 Drives via Crash Site investigation. *FICSIT does not reimburse Pioneers for
 property damage incurred during Crash Site investigation.*
 
-### 1.5 — Project Ledger · `/planner`
+### 1.6 — Project Ledger · `/planner`
 
-A lightweight task tracker for phase-by-phase factory expansion across tiers.
+A UniFi-styled master/detail planner for phase-by-phase factory expansion across
+tiers.
+
+- **KPI strip** — Projects · Tasks · Complete (with progress bar) · In Progress · Blocked
+- **Project list** (left, 340px) — searchable, each row shows target-item icon
+  (or tier badge), status pill with pulse dot for active projects, task counts,
+  and an inline progress bar
+- **Detail pane** (right) with three tabs:
+  - **Tasks** grouped by status (Doing / Blocked / To Do / Done), inline edit,
+    priority + status dropdowns, click-circle to cycle status
+  - **Targets** pin an item + rate per project, lifecycle (planning/active/paused/done),
+    and tier (T0–T9)
+  - **Activity** vertical timeline of every state change
+
+Auto-saves to `localStorage` (`ficsit.planner.v1`). The header offers **Export**
+(downloads the entire planner state as JSON), **Import** (file picker, replaces
+state with confirmation), and **Reset** (restores sample projects).
+
 Pioneers who maintain a written task list are observed to be 31.4% less likely
 to terminate the work cycle while standing motionless in a forest holding a
 Power Shard with no apparent recollection of how they came to be there.
@@ -110,83 +174,136 @@ Power Shard with no apparent recollection of how they came to be there.
 # 2.1  Acquire local dependencies.
 npm install
 
-# 2.2  Generate the structured game-data archive. Reads a community Docs.json
-#      export from /tmp/sat-data.json and writes a pruned bundle to public/data/.
-npm run data
+# 2.2  Refresh the cached data + icons in one shot. Pulls the community 1.0
+#      Docs.json into /tmp, prunes to public/data/, fetches any missing icons.
+npm run refresh
 
 # 2.3  Activate the operations research interface.
 npm run dev
 #      Then proceed to http://localhost:3000.
 ```
 
-In the event that `/tmp/sat-data.json` is not present on your local hardware —
-an outcome FICSIT considers regrettable but foreseeable — retrieve it with:
+A pre-pruned dataset + all icons are committed to the repository — `npm run refresh`
+is only required if you want to pick up newer game data from the community dump.
+
+### 2.1 — Data Source Switching
+
+```bash
+npm run refresh                  # 1.0 dataset + missing icons (default)
+npm run refresh -- --ficsmas     # 1.0 Ficsmas variant (holiday recipes)
+npm run refresh -- --legacy-u8   # pre-1.0 (Update 8) dataset, no Converter
+npm run refresh -- --force-icons # also re-download every icon
+```
+
+Granular sub-tasks if you don't want the all-in-one:
+
+```bash
+npm run data            # re-prune /tmp/sat-data.json → public/data/
+npm run icons           # fetch only icons missing from public/icons/
+npm run icons:force     # re-download every icon (overwrites)
+npm run icons:missing   # retry only the icons in public/icons/_missing.json
+```
+
+If `/tmp/sat-data.json` is not present on your local hardware — an outcome
+FICSIT considers regrettable but foreseeable — retrieve it manually with:
 
 ```bash
 curl -L -o /tmp/sat-data.json \
   https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data1.0.json
 ```
 
-A turnkey procedure for both data and icons is also provided:
-
-```bash
-npm run refresh                  # 1.0 dataset + missing icons
-npm run refresh -- --ficsmas     # Ficsmas-flavored 1.0 dataset
-npm run refresh -- --legacy-u8   # pre-1.0 (Update 8) dataset, no Converter
-```
+A live dataset version badge appears in the sidebar footer (`276r · 152i · 26b`)
+so you can verify you're on the expected build.
 
 ---
 
-## 5.0 — Terminal Planner (Headless Mode)
+## 3.0 — Terminal Planner (Headless Mode)
 
 > *For Pioneers who prefer their cognitive prostheses delivered in monospace.*
 
 The full LP solver is also accessible from the terminal. No browser required, no
 state to remember, no ergonomic dignity preserved.
 
-```bash
-# Maximize Iron Plate from 120 ore/min
-npm run plan -- iron-plate --supply iron-ore=120
+### 3.1 — Examples
 
-# Diamonds from Coal via the Particle Accelerator
+```bash
+# Produce exactly 60 Iron Plate/min — auto-supplies Iron Ore. Solver picks the
+# smallest factory (3 Smelters + 3 Constructors, 24 MW, 90 Iron Ore/m).
+npm run plan -- iron-plate --rate 60
+
+# Spelling tolerance — British "Sulphuric" resolves to "Sulfuric Acid".
+npm run plan -- "Sulphuric Acid" --rate 100
+
+# Diamonds from Coal via the Particle Accelerator.
 npm run plan -- diamonds --supply coal=240 --rate 10
 
-# Time Crystals — Coal → Diamonds → Time Crystals (Converter), with alternates
-npm run plan -- time-crystal --raw --alts --rate 5
+# Time Crystal — Coal → Diamonds → Time Crystals (Converter), with alternates.
+npm run plan -- time-crystal --rate 5 --alts
 
-# Rocket Fuel from the whole resource pantry
-npm run plan -- rocket-fuel --raw --alts --rate 100
+# Maximize Iron Plate given a 480 ore/min cap (no rate = maximize).
+npm run plan -- iron-plate --supply iron-ore=480
 
-# Browse the recipe / item / building catalog
+# Browse the recipe / item / building catalog.
 npm run plan -- --list recipes
+npm run plan -- --list items
 npm run plan -- --list buildings
 
-# Prompt-driven interactive mode
+# Prompt-driven interactive mode.
 npm run plan -- --interactive
+
+# Strict mode — disable auto-supply, every consumed raw must be listed.
+npm run plan -- iron-plate --rate 60 --strict --supply iron-ore=120
 ```
 
-The script prints an ASCII-tabled summary including outputs, consumed inputs,
-total machines, power demand (with suggested generator counts at every tier),
-the building manifest, every recipe line with input/output rates, and the
-AWESOME Sink point valuation. It reads the same pruned dataset (`public/data/satisfactory.json`)
-the web UI does, so anything visible to the Calculator is visible to the CLI.
+### 3.2 — Output Format
+
+The script prints an ANSI-colored, ASCII-tabled summary:
+
+- **Target** — what you asked for
+- **Outputs** — actual produced rate(s)
+- **Raw / Inputs Consumed** — net consumption per supply item, with cap
+  utilization for capped items and an `(auto-supplied)` tag for unconstrained ones
+- **Totals** — total machines · total power MW (with suggested counts of Coal /
+  Fuel / Nuclear generators) · recipe lines
+- **Buildings** — manifest by structure type, sorted by count
+- **Recipe Lines** — every line with machines, building, power range
+  (variable-power recipes show `min–max MW`), alternate flag, plus per-line
+  input/output flows
+- **AWESOME Sink Value** — output points/min minus input points/min, with net.
+  Liquids and gases are correctly excluded (can't be sunk)
+
+### 3.3 — Flags
+
+| Flag | Effect |
+| --- | --- |
+| `<target>` | Item to produce (slug, class name, or partial name with spelling tolerance) |
+| `-s, --supply item=rate,...` | Comma-separated supply caps |
+| `--rate N` | Required minimum output rate per minute. When set, solver minimizes machines instead of maximizing output |
+| `--weight N` | Objective weight on the target (default 1; for multi-target plans) |
+| `--alts` | Allow alternate recipes |
+| `--strict` | Disable auto-supply (every raw must be specified) |
+| `--top N` | Truncate recipe-line dump to top N by machine count |
+| `--list KIND` | List `recipes` (default), `items`, or `buildings` |
+| `-i, --interactive` | Prompt-driven mode |
 
 ---
 
-## 6.0 — Public Deployment (GitHub Pages)
+## 4.0 — Public Deployment (GitHub Pages)
 
 > *FICSIT permits, with measured enthusiasm, the broadcast of this interface to
 > the general Pioneer population via the GitHub Pages infrastructure.*
 
-The site is configured as a fully-static Next.js export and ships with a
-GitHub Actions workflow that builds and publishes it on every push to `main`
-or `develop`.
+The site is configured as a fully-static Next.js export and ships with a GitHub
+Actions workflow that builds and publishes it on every push to `main` or `develop`.
 
-**One-time setup (in the GitHub repo settings):**
+### 4.1 — One-time setup
 
 1. **Settings → Pages → Source** → set to *GitHub Actions*.
-2. Push to `main` (or `develop`). The workflow at `.github/workflows/deploy-pages.yml` runs automatically. You can also trigger it manually under *Actions → Deploy to GitHub Pages → Run workflow*.
-3. The first run completes in ~2 minutes; subsequent runs cache `node_modules` and finish faster.
+2. Push to `main` (or `develop`). The workflow at
+   `.github/workflows/deploy-pages.yml` runs automatically. You can also trigger
+   it manually under *Actions → Deploy to GitHub Pages → Run workflow*.
+3. The first run completes in ~2 minutes; subsequent runs cache `node_modules`
+   and finish faster.
 
 Your site will be served at:
 
@@ -194,17 +311,19 @@ Your site will be served at:
 https://<username>.github.io/<repo-name>/
 ```
 
-The workflow auto-detects `<repo-name>` from `${GITHUB_REPOSITORY}` and passes it as
-`NEXT_PUBLIC_BASE_PATH=/<repo-name>` to the build, so every internal link, asset,
-and `fetch()` is correctly prefixed.
+The workflow auto-detects `<repo-name>` from `${GITHUB_REPOSITORY}` and passes
+it as `NEXT_PUBLIC_BASE_PATH=/<repo-name>` to the build, so every internal link,
+asset, and `fetch()` is correctly prefixed.
 
-**Important — what's committed:** the workflow does **not** fetch game data or icons
-during the build. The pruned data and icon PNGs must be present in
-`public/data/` and `public/icons/` at the time of commit. The workflow performs
-a sanity check and fails fast if either is missing — re-run `npm run refresh`
-locally and commit the result before pushing.
+### 4.2 — What's committed
 
-**Local preview of the production build:**
+The workflow does **not** fetch game data or icons during the build. The pruned
+data and icon PNGs must be present in `public/data/` and `public/icons/` at the
+time of commit. The workflow performs a sanity check and fails fast if either
+is missing — re-run `npm run refresh` locally and commit the result before
+pushing.
+
+### 4.3 — Local preview of the production build
 
 ```bash
 NEXT_PUBLIC_BASE_PATH=/ficsit-operations-research npm run build
@@ -212,32 +331,44 @@ npx serve out -l 8080
 # then open http://localhost:8080/ficsit-operations-research/
 ```
 
-**Tech notes:**
+### 4.4 — Tech notes
+
 - `output: 'export'` in `next.config.mjs` writes a fully-static site to `./out`.
-- `trailingSlash: true` so URLs like `/calculator/` map to `out/calculator/index.html`.
-- `images: { unoptimized: true }` because the next/image optimizer requires a server.
+- `trailingSlash: true` so URLs like `/calculator/` map to
+  `out/calculator/index.html`.
+- `images: { unoptimized: true }` because the next/image optimizer requires a
+  server.
 - A `public/.nojekyll` file prevents GitHub from running Jekyll over `_next/`.
 - `lib/utils/paths.ts → assetPath(...)` wraps raw `<img src>` and `fetch()` URLs
-  so basePath is applied at runtime — `next/link` and `next/image` handle it natively.
+  so basePath is applied at runtime — `next/link` and `next/image` handle it
+  natively.
 
 ---
 
-## 3.0 — Technical Manifest
+## 5.0 — Technical Manifest
 
 For the unusually inquisitive Pioneer. FICSIT recognizes that curiosity, while
 not strictly required by the Pioneer contract, is occasionally tolerated.
 
-| Subsystem        | Implementation |
-| ---              | --- |
-| Interface        | Next.js 15 (App Router) · TypeScript · Tailwind CSS |
-| Game data        | Community Docs.json export (1.0) — pruned to ~276 machine recipes, 152 items, 20 buildings |
-| Optimization     | `javascript-lp-solver` — linear program over recipe rates |
-| Save parsing    | `@etothepii/satisfactory-file-parser` — executed in-browser |
-| Map              | Embedded community cartographic provider |
+| Subsystem | Implementation |
+| --- | --- |
+| Interface | Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS |
+| Game data | Community Docs.json (1.0) — pruned to **276 machine recipes**, **152 items**, **26 buildings** (production + extractors + generators + support), 13 raw resources |
+| Icons | 152 items + 26 buildings · downloaded once from `satisfactory.wiki.gg` via `Special:FilePath`, cached in `public/icons/` |
+| Optimization | `javascript-lp-solver` — linear program over recipe rates, dual-mode (minimize machines vs. maximize output) |
+| Graph layout | `@dagrejs/dagre` — left-to-right layered Sugiyama; SVG render with inline icons; PNG via canvas rasterization |
+| Save parsing | `@etothepii/satisfactory-file-parser` v4 — executed in-browser |
+| Map | Embedded community cartographic provider (Satisfactory Calculator / Map Genie selectable) |
+| Persistence | `localStorage` for Calculator inputs + history, Planner state; JSON export/import for both |
+| Deployment | Static export, GitHub Actions, GitHub Pages |
+
+The dataset is content-hashed (`buildId=<ISO>-r<recipes>-b<buildings>`) so a
+browser auto-busts its cache the moment you re-prune. The current build is
+visible in the sidebar footer.
 
 ---
 
-## 4.0 — Operational Reminders
+## 6.0 — Operational Reminders
 
 - FICSIT thanks you for your continued participation in Project Assembly.
 - Pioneers are reminded that *biomass is a renewable resource*. Where possible,

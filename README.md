@@ -26,6 +26,36 @@
 
 ---
 
+### 📡 Live FICSIT terminal
+
+> The active broadcast is hosted at:
+>
+> **<https://l0g1c-80m8.github.io/ficsit-operations-research/>**
+>
+> Bookmark it. FICSIT pre-warmed the entry hyperlink on your behalf. *You're welcome.*
+
+---
+
+## Table of Contents
+
+- [§1.0 — Authorized Subsystems](#10--authorized-subsystems)
+  - [§1.1 — Cartographic Subsystem · `/map`](#11--cartographic-subsystem--map)
+  - [§1.2 — Save File Interpreter · `/save`](#12--save-file-interpreter--save)
+  - [§1.3 — Recipe Knowledge Base · `/recipes`](#13--recipe-knowledge-base--recipes)
+  - [§1.4 — Building Browser · `/buildings`](#14--building-browser--buildings)
+  - [§1.5 — Production Calculator · `/calculator`](#15--production-calculator--calculator)
+  - [§1.6 — Project Ledger · `/planner`](#16--project-ledger--planner)
+- [§2.0 — Pioneer Quick-Start Procedure](#20--pioneer-quick-start-procedure)
+  - [§2.1 — Data Source Switching](#21--data-source-switching)
+- [§3.0 — Terminal Planner (Headless Mode)](#30--terminal-planner-headless-mode)
+  - [§3.1 — Examples](#31--examples)
+  - [§3.2 — Output Format](#32--output-format)
+  - [§3.3 — Flags](#33--flags)
+- [§4.0 — Technical Manifest](#40--technical-manifest)
+- [§5.0 — Operational Reminders](#50--operational-reminders)
+
+---
+
 ## 1.0 — Authorized Subsystems
 
 The following modules are provided under your standard Pioneer service contract.
@@ -174,7 +204,7 @@ Power Shard with no apparent recollection of how they came to be there.
 # 2.1  Acquire local dependencies.
 npm install
 
-# 2.2  Refresh the cached data + icons in one shot. Pulls the community 1.0
+# 2.2  Refresh the cached data + icons in one shot. Pulls the community 1.1
 #      Docs.json into /tmp, prunes to public/data/, fetches any missing icons.
 npm run refresh
 
@@ -189,9 +219,10 @@ is only required if you want to pick up newer game data from the community dump.
 ### 2.1 — Data Source Switching
 
 ```bash
-npm run refresh                  # 1.0 dataset + missing icons (default)
+npm run refresh                  # 1.1 dataset (default) + missing icons
+npm run refresh -- --legacy-1.0  # pre-1.1 (1.0) dataset
 npm run refresh -- --ficsmas     # 1.0 Ficsmas variant (holiday recipes)
-npm run refresh -- --legacy-u8   # pre-1.0 (Update 8) dataset, no Converter
+npm run refresh -- --legacy-u8   # Update 8 dataset, no Converter
 npm run refresh -- --force-icons # also re-download every icon
 ```
 
@@ -209,7 +240,7 @@ FICSIT considers regrettable but foreseeable — retrieve it manually with:
 
 ```bash
 curl -L -o /tmp/sat-data.json \
-  https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data1.0.json
+  https://raw.githubusercontent.com/greeny/SatisfactoryTools/dev/data/data.json
 ```
 
 A live dataset version badge appears in the sidebar footer (`276r · 152i · 26b`)
@@ -288,72 +319,7 @@ The script prints an ANSI-colored, ASCII-tabled summary:
 
 ---
 
-## 4.0 — Public Deployment (GitHub Pages)
-
-> *FICSIT permits, with measured enthusiasm, the broadcast of this interface to
-> the general Pioneer population via the GitHub Pages infrastructure.*
-
-The site is configured as a fully-static Next.js export and ships with a GitHub
-Actions workflow that builds and publishes it on every push to `main` or `develop`.
-
-### 4.1 — One-time setup
-
-> ⚠ **You must enable Pages once manually** before the first workflow run.
-> GitHub's default `GITHUB_TOKEN` does not have permission to create a Pages
-> site from scratch, so the `configure-pages` action will fail with
-> *"Resource not accessible by integration"* if you skip this step.
-
-1. **Settings → Pages → Source** → choose **GitHub Actions**.
-2. Push to `main` (or `develop`). The workflow at
-   `.github/workflows/deploy-pages.yml` runs automatically. You can also trigger
-   it manually under *Actions → Deploy to GitHub Pages → Run workflow*.
-3. The first run completes in ~2 minutes; subsequent runs cache `node_modules`
-   and finish faster.
-
-If you skip step 1, the workflow fails with a clear in-log message telling you
-exactly which switch to flip. Re-run the job once you've enabled Pages.
-
-Your site will be served at:
-
-```
-https://<username>.github.io/<repo-name>/
-```
-
-The workflow auto-detects `<repo-name>` from `${GITHUB_REPOSITORY}` and passes
-it as `NEXT_PUBLIC_BASE_PATH=/<repo-name>` to the build, so every internal link,
-asset, and `fetch()` is correctly prefixed.
-
-### 4.2 — What's committed
-
-The workflow does **not** fetch game data or icons during the build. The pruned
-data and icon PNGs must be present in `public/data/` and `public/icons/` at the
-time of commit. The workflow performs a sanity check and fails fast if either
-is missing — re-run `npm run refresh` locally and commit the result before
-pushing.
-
-### 4.3 — Local preview of the production build
-
-```bash
-NEXT_PUBLIC_BASE_PATH=/ficsit-operations-research npm run build
-npx serve out -l 8080
-# then open http://localhost:8080/ficsit-operations-research/
-```
-
-### 4.4 — Tech notes
-
-- `output: 'export'` in `next.config.mjs` writes a fully-static site to `./out`.
-- `trailingSlash: true` so URLs like `/calculator/` map to
-  `out/calculator/index.html`.
-- `images: { unoptimized: true }` because the next/image optimizer requires a
-  server.
-- A `public/.nojekyll` file prevents GitHub from running Jekyll over `_next/`.
-- `lib/utils/paths.ts → assetPath(...)` wraps raw `<img src>` and `fetch()` URLs
-  so basePath is applied at runtime — `next/link` and `next/image` handle it
-  natively.
-
----
-
-## 5.0 — Technical Manifest
+## 4.0 — Technical Manifest
 
 For the unusually inquisitive Pioneer. FICSIT recognizes that curiosity, while
 not strictly required by the Pioneer contract, is occasionally tolerated.
@@ -361,14 +327,13 @@ not strictly required by the Pioneer contract, is occasionally tolerated.
 | Subsystem | Implementation |
 | --- | --- |
 | Interface | Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS |
-| Game data | Community Docs.json (1.0) — pruned to **276 machine recipes**, **152 items**, **26 buildings** (production + extractors + generators + support), 13 raw resources |
+| Game data | Community Docs.json (1.1) — pruned to **276 machine recipes**, **152 items**, **26 buildings** (production + extractors + generators + support), 13 raw resources |
 | Icons | 152 items + 26 buildings · downloaded once from `satisfactory.wiki.gg` via `Special:FilePath`, cached in `public/icons/` |
 | Optimization | `javascript-lp-solver` — linear program over recipe rates, dual-mode (minimize machines vs. maximize output) |
 | Graph layout | `@dagrejs/dagre` — left-to-right layered Sugiyama; SVG render with inline icons; PNG via canvas rasterization |
 | Save parsing | `@etothepii/satisfactory-file-parser` v4 — executed in-browser |
 | Map | Embedded community cartographic provider (Satisfactory Calculator / Map Genie selectable) |
 | Persistence | `localStorage` for Calculator inputs + history, Planner state; JSON export/import for both |
-| Deployment | Static export, GitHub Actions, GitHub Pages |
 
 The dataset is content-hashed (`buildId=<ISO>-r<recipes>-b<buildings>`) so a
 browser auto-busts its cache the moment you re-prune. The current build is
@@ -376,7 +341,7 @@ visible in the sidebar footer.
 
 ---
 
-## 6.0 — Operational Reminders
+## 5.0 — Operational Reminders
 
 - FICSIT thanks you for your continued participation in Project Assembly.
 - Pioneers are reminded that *biomass is a renewable resource*. Where possible,

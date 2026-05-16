@@ -9,6 +9,7 @@ import { cn, fmt } from '@/lib/utils';
 import type { FactoryPlan } from '@/lib/solver/factory-solver';
 import { buildProductionGraph, type GraphNode, type GraphEdge, type ProductionGraph } from '@/lib/solver/graph';
 import { graphToDOT, graphToJSON, download } from '@/lib/solver/graph-export';
+import { assetPath } from '@/lib/utils/paths';
 import { Code2, Download, FileJson, ImageDown, Maximize2, Minimize2 } from 'lucide-react';
 
 interface LaidOutNode extends GraphNode {
@@ -202,7 +203,7 @@ function ItemNode({ node }: { node: LaidOutNode }) {
       ? { fill: 'rgba(120,53,15,0.35)', stroke: '#f59e0b' }
       : { fill: '#1c232c', stroke: '#262d36' };
   const total = Math.max(node.totalInRate ?? 0, node.totalOutRate ?? 0);
-  const iconUrl = `/icons/items/${node.iconClass}.png`;
+  const iconUrl = assetPath(`/icons/items/${node.iconClass}.png`);
   return (
     <g transform={`translate(${node.x}, ${node.y})`}>
       <rect width={node.width} height={node.height} rx={10} ry={10} fill={tone.fill} stroke={tone.stroke} strokeWidth={1.2} />
@@ -220,7 +221,7 @@ function ItemNode({ node }: { node: LaidOutNode }) {
 }
 
 function RecipeNode({ node }: { node: LaidOutNode }) {
-  const iconUrl = `/icons/buildings/${node.iconClass}.png`;
+  const iconUrl = assetPath(`/icons/buildings/${node.iconClass}.png`);
   const variable = node.isVariablePower && node.minPower != null && node.maxPower != null;
   return (
     <g transform={`translate(${node.x}, ${node.y})`}>

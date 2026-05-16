@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useGameData } from '@/lib/data/use-data';
+import { assetPath } from '@/lib/utils/paths';
 
 type Kind = 'item' | 'building';
 
@@ -29,7 +30,7 @@ export function ItemIcon({
     kind === 'item' ? data?.items[className]?.name : data?.buildings[className]?.name;
   const label = lookup ?? className;
   const liquid = kind === 'item' && data?.items[className]?.liquid;
-  const src = `/icons/${kind === 'item' ? 'items' : 'buildings'}/${className}.png`;
+  const src = assetPath(`/icons/${kind === 'item' ? 'items' : 'buildings'}/${className}.png`);
   const initial = label
     .split(' ')
     .slice(0, 2)

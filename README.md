@@ -173,6 +173,55 @@ the web UI does, so anything visible to the Calculator is visible to the CLI.
 
 ---
 
+## 6.0 — Public Deployment (GitHub Pages)
+
+> *FICSIT permits, with measured enthusiasm, the broadcast of this interface to
+> the general Pioneer population via the GitHub Pages infrastructure.*
+
+The site is configured as a fully-static Next.js export and ships with a
+GitHub Actions workflow that builds and publishes it on every push to `main`
+or `develop`.
+
+**One-time setup (in the GitHub repo settings):**
+
+1. **Settings → Pages → Source** → set to *GitHub Actions*.
+2. Push to `main` (or `develop`). The workflow at `.github/workflows/deploy-pages.yml` runs automatically. You can also trigger it manually under *Actions → Deploy to GitHub Pages → Run workflow*.
+3. The first run completes in ~2 minutes; subsequent runs cache `node_modules` and finish faster.
+
+Your site will be served at:
+
+```
+https://<username>.github.io/<repo-name>/
+```
+
+The workflow auto-detects `<repo-name>` from `${GITHUB_REPOSITORY}` and passes it as
+`NEXT_PUBLIC_BASE_PATH=/<repo-name>` to the build, so every internal link, asset,
+and `fetch()` is correctly prefixed.
+
+**Important — what's committed:** the workflow does **not** fetch game data or icons
+during the build. The pruned data and icon PNGs must be present in
+`public/data/` and `public/icons/` at the time of commit. The workflow performs
+a sanity check and fails fast if either is missing — re-run `npm run refresh`
+locally and commit the result before pushing.
+
+**Local preview of the production build:**
+
+```bash
+NEXT_PUBLIC_BASE_PATH=/ficsit-operations-research npm run build
+npx serve out -l 8080
+# then open http://localhost:8080/ficsit-operations-research/
+```
+
+**Tech notes:**
+- `output: 'export'` in `next.config.mjs` writes a fully-static site to `./out`.
+- `trailingSlash: true` so URLs like `/calculator/` map to `out/calculator/index.html`.
+- `images: { unoptimized: true }` because the next/image optimizer requires a server.
+- A `public/.nojekyll` file prevents GitHub from running Jekyll over `_next/`.
+- `lib/utils/paths.ts → assetPath(...)` wraps raw `<img src>` and `fetch()` URLs
+  so basePath is applied at runtime — `next/link` and `next/image` handle it natively.
+
+---
+
 ## 3.0 — Technical Manifest
 
 For the unusually inquisitive Pioneer. FICSIT recognizes that curiosity, while

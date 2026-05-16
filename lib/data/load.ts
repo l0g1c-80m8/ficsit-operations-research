@@ -1,4 +1,5 @@
 import type { SatData } from './types';
+import { assetPath } from '@/lib/utils/paths';
 
 let cache: Promise<SatData> | null = null;
 
@@ -14,7 +15,7 @@ export function loadGameData(): Promise<SatData> {
   cache = (async () => {
     let buildId = 'unknown';
     try {
-      const v = await fetch('/data/version.json', { cache: 'no-store' });
+      const v = await fetch(assetPath('/data/version.json'), { cache: 'no-store' });
       if (v.ok) {
         const j = (await v.json()) as { buildId?: string };
         if (j.buildId) buildId = j.buildId;
@@ -22,7 +23,7 @@ export function loadGameData(): Promise<SatData> {
     } catch {
       /* fall through — we'll just fetch with a static URL */
     }
-    const url = `/data/satisfactory.json?v=${encodeURIComponent(buildId)}`;
+    const url = `${assetPath('/data/satisfactory.json')}?v=${encodeURIComponent(buildId)}`;
     const r = await fetch(url, { cache: 'force-cache' });
     if (!r.ok) throw new Error(`Failed to load game data: ${r.status}`);
     const data = (await r.json()) as SatData & { buildId?: string };

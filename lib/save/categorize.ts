@@ -54,22 +54,29 @@ export const CATEGORY_META: Record<
 > = {
   // Order = render z-order. Big translucent layers (foundations) render first
   // and sit at the bottom; small dots paint last on top.
-  foundation:    { label: 'Foundations & structural', color: '#5a6470', shape: 'rect',     size: 800, opacity: 0.45, order: 0  },
-  rail:          { label: 'Rail infrastructure',      color: '#a78bfa', shape: 'dot',      size: 220, opacity: 0.75, order: 1  },
-  conveyor:      { label: 'Conveyors',                color: '#38bdf8', shape: 'dot',      size: 120, opacity: 0.75, order: 2  },
-  pipeline:      { label: 'Pipelines',                color: '#22d3ee', shape: 'dot',      size: 130, opacity: 0.75, order: 3  },
-  power_grid:    { label: 'Power grid',               color: '#fde047', shape: 'dot',      size: 140, opacity: 0.85, order: 4  },
-  fluid_storage: { label: 'Fluid storage',            color: '#06b6d4', shape: 'rect',     size: 420, opacity: 0.9,  order: 5  },
-  item_storage:  { label: 'Item storage',             color: '#c084fc', shape: 'rect',     size: 400, opacity: 0.9,  order: 6  },
-  power_storage: { label: 'Power storage',            color: '#eab308', shape: 'rect',     size: 460, opacity: 0.95, order: 7  },
-  extractor:     { label: 'Extractors',               color: '#22c55e', shape: 'rect',     size: 700, opacity: 0.95, order: 8  },
-  generator:     { label: 'Power generators',         color: '#f59e0b', shape: 'rect',     size: 720, opacity: 0.95, order: 9  },
-  production:    { label: 'Production machines',      color: '#f97316', shape: 'rect',     size: 600, opacity: 0.95, order: 10 },
-  pioneer:       { label: 'Pioneer-placed',           color: '#ef4444', shape: 'rect',     size: 460, opacity: 0.9,  order: 11 },
-  train:         { label: 'Trains & freight wagons',  color: '#ec4899', shape: 'rect',     size: 320, opacity: 0.9,  order: 12 },
-  vehicle:       { label: 'Road vehicles',            color: '#fb7185', shape: 'triangle', size: 250, opacity: 0.8,  order: 13 },
-  decoration:    { label: 'Decoration & signage',     color: '#94a3b8', shape: 'dot',      size: 90,  opacity: 0.6,  order: 14 },
-  misc:          { label: 'Other / unrecognized',     color: '#64748b', shape: 'dot',      size: 60,  opacity: 0.4,  order: 15 },
+  //
+  // Palette is hand-picked for maximum *pairwise* hue distance — every
+  // category's color is in a different wedge of the wheel from its likely
+  // neighbours, so a Constructor next to a Power Pole next to a Conveyor
+  // reads as three distinct colors even at one-pixel resolution. Hues were
+  // chosen to avoid the previous "three blues / three yellows / three pinks /
+  // three slates" clustering. Verified visually on the #0d1117 map background.
+  foundation:    { label: 'Foundations & structural', color: '#4b5563', shape: 'rect',     size: 800, opacity: 0.45, order: 0  }, // slate-600 — large translucent backdrop
+  rail:          { label: 'Rail infrastructure',      color: '#6366f1', shape: 'dot',      size: 220, opacity: 0.85, order: 1  }, // indigo-500
+  conveyor:      { label: 'Conveyors',                color: '#3b82f6', shape: 'dot',      size: 120, opacity: 0.85, order: 2  }, // blue-500
+  pipeline:      { label: 'Pipelines',                color: '#0e7490', shape: 'dot',      size: 130, opacity: 0.9,  order: 3  }, // cyan-700 dark, distinct from conveyor blue
+  power_grid:    { label: 'Power grid',               color: '#fbbf24', shape: 'dot',      size: 140, opacity: 0.95, order: 4  }, // amber-400 (saturated yellow)
+  fluid_storage: { label: 'Fluid storage',            color: '#22d3ee', shape: 'rect',     size: 420, opacity: 0.95, order: 5  }, // cyan-400 bright — lets fluid tanks pop against pipeline dark cyan
+  item_storage:  { label: 'Item storage',             color: '#a855f7', shape: 'rect',     size: 400, opacity: 0.95, order: 6  }, // purple-500
+  power_storage: { label: 'Power storage',            color: '#a16207', shape: 'rect',     size: 460, opacity: 0.95, order: 7  }, // yellow-700 (mustard) — distinct from yellow grid + orange production
+  extractor:     { label: 'Extractors',               color: '#22c55e', shape: 'rect',     size: 700, opacity: 0.95, order: 8  }, // green-500
+  generator:     { label: 'Power generators',         color: '#dc2626', shape: 'rect',     size: 720, opacity: 0.95, order: 9  }, // red-600 — strong red, no overlap with orange/amber
+  production:    { label: 'Production machines',      color: '#f97316', shape: 'rect',     size: 600, opacity: 0.95, order: 10 }, // orange-500
+  pioneer:       { label: 'Pioneer-placed',           color: '#84cc16', shape: 'rect',     size: 460, opacity: 0.95, order: 11 }, // lime-500 — yellow-green, distinct from extractor green
+  train:         { label: 'Trains & freight wagons',  color: '#ec4899', shape: 'rect',     size: 320, opacity: 0.95, order: 12 }, // pink-500
+  vehicle:       { label: 'Road vehicles',            color: '#92400e', shape: 'triangle', size: 250, opacity: 0.95, order: 13 }, // amber-800 brown — saturated enough to read on dark bg, triangle shape disambiguates from power_storage mustard
+  decoration:    { label: 'Decoration & signage',     color: '#cbd5e1', shape: 'dot',      size: 90,  opacity: 0.55, order: 14 }, // slate-300 light
+  misc:          { label: 'Other / unrecognized',     color: '#64748b', shape: 'dot',      size: 60,  opacity: 0.4,  order: 15 }, // slate-500
 };
 
 /** Save actors carry the *buildable* class (`Build_FooMk1_C`); game data is keyed

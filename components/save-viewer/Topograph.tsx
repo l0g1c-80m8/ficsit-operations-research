@@ -1,11 +1,12 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Eye, EyeOff, Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Download, Eye, EyeOff, ImageDown, Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
 import { cn, fmt } from '@/lib/utils';
 import type { ParsedSaveSummary, PlacedActor, SaveCategory } from '@/lib/save/types';
 import { CATEGORY_META } from '@/lib/save/categorize';
+import { download } from '@/lib/solver/graph-export';
 
 const ORDERED_CATEGORIES: SaveCategory[] = (
   Object.entries(CATEGORY_META) as [SaveCategory, (typeof CATEGORY_META)[SaveCategory]][]
@@ -21,6 +22,7 @@ export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
   const [visible, setVisible] = useState(initialVisible);
   const [fullscreen, setFullscreen] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   if (!summary.bbox || summary.actors.length === 0) {
     return (
@@ -66,7 +68,7 @@ export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
     );
 
   return (
-    <Card className={cn(fullscreen && 'fixed inset-4 z-50 flex flex-col overflow-hidden')}>
+    <Card className={cn('min-w-0', fullscreen && 'fixed inset-4 z-50 flex flex-col overflow-hidden')}>
       <CardHeader
         title="Topography"
         subtitle={`${fmt(summary.actors.length)} actors · ${fmt(worldW / 100, 0)}m × ${fmt(worldH / 100, 0)}m footprint`}
@@ -87,7 +89,7 @@ export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
           </div>
         }
       />
-      <CardBody className={cn('space-y-3', fullscreen && 'flex flex-1 flex-col')}>
+      <CardBody className={cn('space-y-3', fullscreen && 'flex min-h-0 min-w-0 flex-1 flex-col')}>
         <LayerControls
           counts={summary.categoryCounts}
           visible={visible}
@@ -98,18 +100,22 @@ export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
         <div
           className={cn(
             'overflow-auto rounded-md border border-ficsit-border bg-ficsit-bg',
-            fullscreen ? 'flex-1' : 'max-h-[70vh]',
+            // min-h-0/min-w-0 lets the flex child actually scroll instead of
+            // letting the inner sized <div> push the flex parent past the
+            // viewport (default min-size: auto).
+            fullscreen ? 'min-h-0 min-w-0 flex-1' : 'max-h-[70vh]',
           )}
         >
           <div style={{ width: viewW * zoom, height: viewH * zoom }}>
             <svg
+              // Satisfactory: +X east, +Y south (UE4 convention). SVG default
+              // already puts smaller Y at the top — meaning -Y (north) ends up
+              // at the top with no flip. East lands on the right naturally.
               viewBox={`${x0} ${y0} ${worldW} ${worldH}`}
               width="100%"
               height="100%"
               preserveAspectRatio="xMidYMid meet"
               xmlns="http://www.w3.org/2000/svg"
-              // Flip Y so north is up — Satisfactory's +Y is north but SVG's +Y is down.
-              style={{ transform: 'scaleY(-1)' }}
             >
               <rect x={x0} y={y0} width={worldW} height={worldH} fill="#0d1117" />
               {/* World-axis cross at origin */}
@@ -118,16 +124,70 @@ export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
               {ORDERED_CATEGORIES.filter((c) => visible[c]).map((cat) => (
                 <Layer key={cat} category={cat} actors={grouped.get(cat) ?? []} />
               ))}
+              {/* Compass — placed in world coords near the top-left of the view */}
+              <Compass x={x0 + worldW * 0.04} y={y0 + worldH * 0.06} size={worldW * 0.025} />
             </svg>
           </div>
         </div>
 
         <div className="flex items-center justify-between text-[10px] text-ficsit-subtle">
-          <span>+Y north · +X east · origin marked with thin cross</span>
+          <span>North up · East right · origin marked with thin cross</span>
           <span>scroll / drag to pan · use zoom controls above</span>
         </div>
       </CardBody>
     </Card>
+  );
+}
+
+function Compass({ x, y, size }: { x: number; y: number; size: number }) {
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <circle r={size} fill="#0d1117" stroke="#3d444d" strokeWidth={size * 0.06} />
+      {/* North pointer — North is the -Y direction, so a triangle pointing up
+       *  (toward smaller Y) since SVG +Y is down. */}
+      <polygon
+        points={`0,${-size * 0.85} ${size * 0.18},${size * 0.05} ${-size * 0.18},${size * 0.05}`}
+        fill="#f97316"
+      />
+      <text
+        y={-size * 0.95}
+        textAnchor="middle"
+        fontSize={size * 0.45}
+        fill="#f97316"
+        fontFamily="ui-monospace, Menlo, monospace"
+      >
+        N
+      </text>
+      <text
+        y={size * 1.4}
+        textAnchor="middle"
+        fontSize={size * 0.35}
+        fill="#8b949e"
+        fontFamily="ui-monospace, Menlo, monospace"
+      >
+        S
+      </text>
+      <text
+        x={size * 1.2}
+        y={size * 0.12}
+        textAnchor="start"
+        fontSize={size * 0.35}
+        fill="#8b949e"
+        fontFamily="ui-monospace, Menlo, monospace"
+      >
+        E
+      </text>
+      <text
+        x={-size * 1.2}
+        y={size * 0.12}
+        textAnchor="end"
+        fontSize={size * 0.35}
+        fill="#8b949e"
+        fontFamily="ui-monospace, Menlo, monospace"
+      >
+        W
+      </text>
+    </g>
   );
 }
 
@@ -229,8 +289,9 @@ function ActorMark({
 }) {
   const w = size * actor.scale;
   const h = size * actor.scale;
-  // SVG is flipped (scaleY(-1)), so we negate yaw to keep visual orientation consistent.
-  const transform = `translate(${actor.x},${actor.y}) rotate(${-actor.yaw})`;
+  // No SVG flip, so yaw applies directly. UE4 yaw=0 points +X (east); SVG
+  // rotate(0) leaves elements pointing right; matches.
+  const transform = `translate(${actor.x},${actor.y}) rotate(${actor.yaw})`;
   if (shape === 'rect') {
     return <rect x={-w / 2} y={-h / 2} width={w} height={h} transform={transform} rx={w / 12} ry={h / 12} />;
   }

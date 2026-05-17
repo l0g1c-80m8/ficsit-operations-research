@@ -196,6 +196,19 @@
       "problemMatcher": []
     },
     {
+      "label": "download Drive save revisions",
+      "detail": "Download every revision of the tracked Satisfactory .sav from Google Drive into sample/",
+      "type": "shell",
+      "command": "${workspaceFolder}/.venv/bin/python3",
+      "args": ["scripts/download-drive-revisions.py"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "icon": { "id": "cloud-download", "color": "terminal.ansiYellow" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
       "label": "verify (typecheck + build)",
       "detail": "Run typecheck and then a production build",
       "dependsOrder": "sequence",

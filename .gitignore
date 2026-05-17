@@ -10,6 +10,10 @@ dist
 .idea
 tsconfig.tsbuildinfo
 
+# Python venv (for scripts/download-drive-revisions.py)
+.venv/
+.venv*/
+
 # Google Drive OAuth (scripts/download-drive-revisions.py)
 credentials.json
 token.json

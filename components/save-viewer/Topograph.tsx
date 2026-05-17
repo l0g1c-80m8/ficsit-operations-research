@@ -1,8 +1,18 @@
 'use client';
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Download, Eye, EyeOff, ImageDown, Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  Crosshair,
+  Download,
+  Eye,
+  EyeOff,
+  ImageDown,
+  Maximize2,
+  Minimize2,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { cn, fmt } from '@/lib/utils';
 import type { ParsedSaveSummary, PlacedActor, SaveCategory } from '@/lib/save/types';
 import { CATEGORY_META } from '@/lib/save/categorize';
@@ -14,40 +24,48 @@ const ORDERED_CATEGORIES: SaveCategory[] = (
   .sort(([, a], [, b]) => a.order - b.order)
   .map(([k]) => k);
 
-export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
-  const initialVisible = useMemo<Record<SaveCategory, boolean>>(() => ({
-    foundation: true, rail: true, belt: true, pipe: true, power: true,
-    storage: true, extractor: true, production: true, vehicle: true, misc: false,
-  }), []);
+interface ViewBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function Topograph({
+  summary,
+  highlightClasses,
+}: {
+  summary: ParsedSaveSummary;
+  /** Optional set of className(s) to highlight with an outline ring. */
+  highlightClasses?: Set<string>;
+}) {
+  const initialVisible = useMemo<Record<SaveCategory, boolean>>(
+    () => ({
+      foundation: true, rail: true, belt: true, pipe: true, power: true,
+      storage: true, extractor: true, production: true, vehicle: true, misc: false,
+    }),
+    [],
+  );
   const [visible, setVisible] = useState(initialVisible);
   const [fullscreen, setFullscreen] = useState(false);
-  const [zoom, setZoom] = useState(1);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  if (!summary.bbox || summary.actors.length === 0) {
-    return (
-      <Card>
-        <CardHeader title="Topography" subtitle="2D footprint of every placed actor (top-down, X/Y plane)." />
-        <CardBody>
-          <p className="text-sm text-ficsit-subtle">
-            No actor geometry available. Reupload with a newer version of the parser, or this save
-            doesn't have placed entities.
-          </p>
-        </CardBody>
-      </Card>
-    );
-  }
+  // Compute world bounds once per summary. Add a small border so things on the
+  // edge don't sit flush against the canvas frame.
+  const worldBox = useMemo(() => {
+    if (!summary.bbox) return { x: -1000, y: -1000, w: 2000, h: 2000 };
+    const { minX, maxX, minY, maxY } = summary.bbox;
+    const pad = 4000;
+    return { x: minX - pad, y: minY - pad, w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad };
+  }, [summary]);
 
-  const { minX, maxX, minY, maxY } = summary.bbox;
-  const padding = 4000; // cm — give the plot a small border
-  const x0 = minX - padding, x1 = maxX + padding;
-  const y0 = minY - padding, y1 = maxY + padding;
-  const worldW = x1 - x0 || 1;
-  const worldH = y1 - y0 || 1;
-  const viewW = 1000;
-  const viewH = (worldH / worldW) * viewW;
-  // World-units → SVG-units conversion factor.
-  const scale = viewW / worldW;
+  const [viewBox, setViewBox] = useState<ViewBox>(worldBox);
+  // Reset view whenever a new save is loaded.
+  useEffect(() => setViewBox(worldBox), [worldBox]);
+
+  // Cursor world coords for the HUD. null when cursor isn't over the canvas.
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ startVB: ViewBox; startPt: { x: number; y: number } } | null>(null);
 
   const grouped = useMemo(() => {
     const map = new Map<SaveCategory, PlacedActor[]>();
@@ -59,36 +77,151 @@ export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
     return map;
   }, [summary]);
 
+  const screenToWorld = useCallback((e: { clientX: number; clientY: number }) => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const inv = ctm.inverse();
+    return pt.matrixTransform(inv);
+  }, []);
+
+  const onWheel = useCallback(
+    (e: React.WheelEvent<SVGSVGElement>) => {
+      e.preventDefault();
+      const worldPt = screenToWorld(e);
+      if (!worldPt) return;
+      const factor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
+      setViewBox((vb) => {
+        const minW = 1000;
+        const maxW = worldBox.w * 1.4;
+        const newW = clamp(vb.w * factor, minW, maxW);
+        const newH = clamp(vb.h * factor, minW * (vb.h / vb.w), maxW * (vb.h / vb.w));
+        // Keep the world point under the cursor stationary.
+        const ratioX = (worldPt.x - vb.x) / vb.w;
+        const ratioY = (worldPt.y - vb.y) / vb.h;
+        return { x: worldPt.x - ratioX * newW, y: worldPt.y - ratioY * newH, w: newW, h: newH };
+      });
+    },
+    [screenToWorld, worldBox],
+  );
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      if (e.button !== 0) return; // left-click pan only
+      const worldPt = screenToWorld(e);
+      if (!worldPt) return;
+      svgRef.current?.setPointerCapture(e.pointerId);
+      dragRef.current = { startVB: viewBox, startPt: worldPt };
+    },
+    [screenToWorld, viewBox],
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<SVGSVGElement>) => {
+      const worldPt = screenToWorld(e);
+      if (!worldPt) return;
+      setCursor({ x: worldPt.x, y: worldPt.y });
+      const drag = dragRef.current;
+      if (!drag) return;
+      // The startPt was computed under the OLD viewBox; the current call's
+      // worldPt is under the LATEST viewBox. To pan correctly, recompute the
+      // current world point under the drag-start viewBox and slide vb so they
+      // coincide.
+      const svg = svgRef.current;
+      if (!svg) return;
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return;
+      const rect = svg.getBoundingClientRect();
+      const sx = (e.clientX - rect.left) / rect.width;
+      const sy = (e.clientY - rect.top) / rect.height;
+      const currentWorldX = drag.startVB.x + sx * drag.startVB.w;
+      const currentWorldY = drag.startVB.y + sy * drag.startVB.h;
+      const dx = drag.startPt.x - currentWorldX;
+      const dy = drag.startPt.y - currentWorldY;
+      setViewBox({
+        x: drag.startVB.x + dx,
+        y: drag.startVB.y + dy,
+        w: drag.startVB.w,
+        h: drag.startVB.h,
+      });
+    },
+    [screenToWorld],
+  );
+
+  const onPointerUp = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    if (svgRef.current?.hasPointerCapture(e.pointerId)) {
+      svgRef.current.releasePointerCapture(e.pointerId);
+    }
+    dragRef.current = null;
+  }, []);
+
+  const zoomBy = useCallback(
+    (factor: number) => {
+      // Zoom around viewbox center.
+      setViewBox((vb) => {
+        const minW = 1000;
+        const maxW = worldBox.w * 1.4;
+        const newW = clamp(vb.w / factor, minW, maxW);
+        const newH = clamp(vb.h / factor, minW * (vb.h / vb.w), maxW * (vb.h / vb.w));
+        const cx = vb.x + vb.w / 2;
+        const cy = vb.y + vb.h / 2;
+        return { x: cx - newW / 2, y: cy - newH / 2, w: newW, h: newH };
+      });
+    },
+    [worldBox],
+  );
+
+  if (!summary.bbox || summary.actors.length === 0) {
+    return (
+      <Card>
+        <CardHeader title="Topography" subtitle="2D footprint of every placed actor (top-down, X/Y plane)." />
+        <CardBody>
+          <p className="text-sm text-ficsit-subtle">
+            No actor geometry available in this save.
+          </p>
+        </CardBody>
+      </Card>
+    );
+  }
+
   const setLayerVisible = (cat: SaveCategory, v: boolean) =>
     setVisible((s) => ({ ...s, [cat]: v }));
-
   const all = (v: boolean) =>
-    setVisible(
-      Object.fromEntries(ORDERED_CATEGORIES.map((c) => [c, v])) as Record<SaveCategory, boolean>,
-    );
+    setVisible(Object.fromEntries(ORDERED_CATEGORIES.map((c) => [c, v])) as Record<SaveCategory, boolean>);
+
+  // Display-only zoom %, computed from how zoomed-in the viewBox is vs initial.
+  const zoomPct = Math.round((worldBox.w / viewBox.w) * 100);
+  const isDragging = dragRef.current !== null;
 
   return (
     <Card className={cn('min-w-0', fullscreen && 'fixed inset-4 z-50 flex flex-col overflow-hidden')}>
       <CardHeader
         title="Topography"
-        subtitle={`${fmt(summary.actors.length)} actors · ${fmt(worldW / 100, 0)}m × ${fmt(worldH / 100, 0)}m footprint`}
+        subtitle={`${fmt(summary.actors.length)} actors · ${fmt(worldBox.w / 100, 0)}m × ${fmt(worldBox.h / 100, 0)}m footprint`}
         right={
           <div className="flex items-center gap-1">
-            <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary)} title="Download as SVG">
+            <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary, worldBox)} title="Download as SVG">
               <Download className="h-3.5 w-3.5" /> SVG
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary)} title="Download as PNG (2× resolution)">
+            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox)} title="Download as PNG (2× resolution)">
               <ImageDown className="h-3.5 w-3.5" /> PNG
             </Button>
             <span className="mx-1 h-5 w-px bg-ficsit-border" />
-            <Button variant="ghost" size="sm" onClick={() => setZoom((z) => Math.max(0.5, z / 1.4))} title="Zoom out">
+            <Button variant="ghost" size="sm" onClick={() => zoomBy(1 / 1.4)} title="Zoom out (or scroll-wheel)">
               <ZoomOut className="h-3.5 w-3.5" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setZoom(1)} title="Reset zoom">
-              <span className="font-mono text-[10px]">{Math.round(zoom * 100)}%</span>
+            <Button variant="ghost" size="sm" onClick={() => setViewBox(worldBox)} title="Fit to view">
+              <span className="font-mono text-[10px]">{zoomPct}%</span>
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setZoom((z) => Math.min(8, z * 1.4))} title="Zoom in">
+            <Button variant="ghost" size="sm" onClick={() => zoomBy(1.4)} title="Zoom in (or scroll-wheel)">
               <ZoomIn className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setViewBox(worldBox)} title="Reset / fit to view">
+              <Crosshair className="h-3.5 w-3.5" />
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setFullscreen((f) => !f)}>
               {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
@@ -106,97 +239,120 @@ export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
 
         <div
           className={cn(
-            'overflow-auto rounded-md border border-ficsit-border bg-ficsit-bg',
-            // min-h-0/min-w-0 lets the flex child actually scroll instead of
-            // letting the inner sized <div> push the flex parent past the
-            // viewport (default min-size: auto).
-            fullscreen ? 'min-h-0 min-w-0 flex-1' : 'max-h-[70vh]',
+            'relative overflow-hidden rounded-md border border-ficsit-border bg-ficsit-bg',
+            fullscreen ? 'min-h-0 min-w-0 flex-1' : 'aspect-[4/3] max-h-[70vh]',
           )}
         >
-          <div style={{ width: viewW * zoom, height: viewH * zoom }}>
-            <svg
-              ref={svgRef}
-              // Satisfactory: +X east, +Y south (UE4 convention). SVG default
-              // already puts smaller Y at the top — meaning -Y (north) ends up
-              // at the top with no flip. East lands on the right naturally.
-              viewBox={`${x0} ${y0} ${worldW} ${worldH}`}
-              width="100%"
-              height="100%"
-              preserveAspectRatio="xMidYMid meet"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect x={x0} y={y0} width={worldW} height={worldH} fill="#0d1117" />
-              {/* World-axis cross at origin */}
-              <line x1={x0} y1={0} x2={x1} y2={0} stroke="#1c232c" strokeWidth={Math.max(20, 1 / scale)} />
-              <line x1={0} y1={y0} x2={0} y2={y1} stroke="#1c232c" strokeWidth={Math.max(20, 1 / scale)} />
-              {ORDERED_CATEGORIES.filter((c) => visible[c]).map((cat) => (
-                <Layer key={cat} category={cat} actors={grouped.get(cat) ?? []} />
-              ))}
-              {/* Compass — placed in world coords near the top-left of the view */}
-              <Compass x={x0 + worldW * 0.04} y={y0 + worldH * 0.06} size={worldW * 0.025} />
-            </svg>
-          </div>
+          <svg
+            ref={svgRef}
+            viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
+            width="100%"
+            height="100%"
+            preserveAspectRatio="xMidYMid meet"
+            xmlns="http://www.w3.org/2000/svg"
+            onWheel={onWheel}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerLeave={(e) => {
+              setCursor(null);
+              onPointerUp(e);
+            }}
+            style={{ cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+          >
+            <rect x={worldBox.x} y={worldBox.y} width={worldBox.w} height={worldBox.h} fill="#0d1117" />
+            {/* World-axis cross at origin */}
+            <line x1={worldBox.x} y1={0} x2={worldBox.x + worldBox.w} y2={0} stroke="#1c232c" strokeWidth={viewBox.w * 0.0015} />
+            <line x1={0} y1={worldBox.y} x2={0} y2={worldBox.y + worldBox.h} stroke="#1c232c" strokeWidth={viewBox.w * 0.0015} />
+            {ORDERED_CATEGORIES.filter((c) => visible[c]).map((cat) => (
+              <Layer
+                key={cat}
+                category={cat}
+                actors={grouped.get(cat) ?? []}
+                highlightClasses={highlightClasses}
+              />
+            ))}
+            {/* Compass anchored in the SVG container coords (not world). */}
+          </svg>
+          {/* Overlays — kept in HTML, positioned absolutely on top of the SVG. */}
+          <Compass />
+          <ScaleBar viewBoxW={viewBox.w} />
+          <CursorHUD cursor={cursor} />
         </div>
 
         <div className="flex items-center justify-between text-[10px] text-ficsit-subtle">
-          <span>North up · East right · origin marked with thin cross</span>
-          <span>scroll / drag to pan · use zoom controls above</span>
+          <span>North up · East right · scroll to zoom · drag to pan</span>
+          <span>
+            Hold a row in the <strong>Top Classes</strong> table to highlight on the map.
+          </span>
         </div>
       </CardBody>
     </Card>
   );
 }
 
-function Compass({ x, y, size }: { x: number; y: number; size: number }) {
+function Compass() {
   return (
-    <g transform={`translate(${x},${y})`}>
-      <circle r={size} fill="#0d1117" stroke="#3d444d" strokeWidth={size * 0.06} />
-      {/* North pointer — North is the -Y direction, so a triangle pointing up
-       *  (toward smaller Y) since SVG +Y is down. */}
-      <polygon
-        points={`0,${-size * 0.85} ${size * 0.18},${size * 0.05} ${-size * 0.18},${size * 0.05}`}
-        fill="#f97316"
-      />
-      <text
-        y={-size * 0.95}
-        textAnchor="middle"
-        fontSize={size * 0.45}
-        fill="#f97316"
-        fontFamily="ui-monospace, Menlo, monospace"
-      >
-        N
-      </text>
-      <text
-        y={size * 1.4}
-        textAnchor="middle"
-        fontSize={size * 0.35}
-        fill="#8b949e"
-        fontFamily="ui-monospace, Menlo, monospace"
-      >
-        S
-      </text>
-      <text
-        x={size * 1.2}
-        y={size * 0.12}
-        textAnchor="start"
-        fontSize={size * 0.35}
-        fill="#8b949e"
-        fontFamily="ui-monospace, Menlo, monospace"
-      >
-        E
-      </text>
-      <text
-        x={-size * 1.2}
-        y={size * 0.12}
-        textAnchor="end"
-        fontSize={size * 0.35}
-        fill="#8b949e"
-        fontFamily="ui-monospace, Menlo, monospace"
-      >
-        W
-      </text>
-    </g>
+    <div className="pointer-events-none absolute right-3 top-3 grid h-14 w-14 place-items-center rounded-full border border-ficsit-border bg-ficsit-bg/85 text-[10px] font-medium text-ficsit-subtle backdrop-blur">
+      <div className="absolute top-1 text-ficsit-accent">N</div>
+      <div className="absolute bottom-1">S</div>
+      <div className="absolute right-1.5">E</div>
+      <div className="absolute left-1.5">W</div>
+      <div className="h-7 w-px bg-ficsit-accent/60" />
+    </div>
   );
+}
+
+function CursorHUD({ cursor }: { cursor: { x: number; y: number } | null }) {
+  if (!cursor) return null;
+  return (
+    <div className="pointer-events-none absolute left-3 top-3 rounded-md border border-ficsit-border bg-ficsit-bg/85 px-2 py-1 font-mono text-[10px] text-ficsit-subtle backdrop-blur">
+      <span className="text-ficsit-text">{fmt(cursor.x / 100, 0)}m</span>
+      <span> · </span>
+      <span className="text-ficsit-text">{fmt(-cursor.y / 100, 0)}m</span>
+      <span> </span>
+      <span>(N/E)</span>
+    </div>
+  );
+}
+
+function ScaleBar({ viewBoxW }: { viewBoxW: number }) {
+  // Pick a "nice" round distance in meters that fits in ~15% of the view width.
+  const targetMeters = (viewBoxW * 0.15) / 100;
+  const niceMeters = niceRound(targetMeters);
+  // Width as a fraction of the canvas (assuming preserveAspectRatio meet, the
+  // SVG fills the container by viewBoxW horizontally if aspect is wider).
+  const widthFrac = (niceMeters * 100) / viewBoxW;
+  const widthPct = Math.min(50, Math.max(3, widthFrac * 100));
+  return (
+    <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2 text-[10px] text-ficsit-subtle">
+      <div
+        className="h-2 border-x-2 border-b-2 border-ficsit-text"
+        style={{ width: `${widthPct}%`, minWidth: 40, maxWidth: 240 }}
+      />
+      <span className="rounded bg-ficsit-bg/80 px-1.5 py-0.5 text-ficsit-text backdrop-blur">
+        {fmtDistance(niceMeters)}
+      </span>
+    </div>
+  );
+}
+
+function fmtDistance(m: number): string {
+  if (m >= 1000) return `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km`;
+  return `${m} m`;
+}
+
+/** Round to a "nice" engineering scale: 1, 2, 5, 10, 20, 50, 100, … */
+function niceRound(v: number): number {
+  if (!Number.isFinite(v) || v <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  const mantissa = v / pow;
+  const nice = mantissa < 1.5 ? 1 : mantissa < 3.5 ? 2 : mantissa < 7.5 ? 5 : 10;
+  return nice * pow;
+}
+
+function clamp(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
 }
 
 function LayerControls({
@@ -245,10 +401,7 @@ function LayerControls({
                   onChange={(e) => onToggle(c, e.target.checked)}
                   className="h-3.5 w-3.5 accent-ficsit-accent"
                 />
-                <span
-                  className="inline-block h-3 w-3 shrink-0 rounded-sm"
-                  style={{ backgroundColor: meta.color, opacity: on ? 1 : 0.4 }}
-                />
+                <LayerShapeBadge color={meta.color} shape={meta.shape} on={on} />
                 <span className="truncate">{meta.label}</span>
               </span>
               <span className="shrink-0 font-mono text-[10px] text-ficsit-subtle">{fmt(count)}</span>
@@ -260,30 +413,80 @@ function LayerControls({
   );
 }
 
-function Layer({ category, actors }: { category: SaveCategory; actors: PlacedActor[] }) {
+function LayerShapeBadge({ color, shape, on }: { color: string; shape: 'rect' | 'dot' | 'triangle' | 'line'; on: boolean }) {
+  const fill = on ? color : '#3d444d';
+  return (
+    <svg viewBox="-1 -1 2 2" width={12} height={12} className="shrink-0">
+      {shape === 'dot' && <circle r={0.8} fill={fill} />}
+      {shape === 'rect' && <rect x={-0.85} y={-0.85} width={1.7} height={1.7} fill={fill} rx={0.2} />}
+      {shape === 'triangle' && <polygon points="0,-0.85 0.7,0.6 -0.7,0.6" fill={fill} />}
+      {shape === 'line' && <rect x={-0.9} y={-0.2} width={1.8} height={0.4} fill={fill} />}
+    </svg>
+  );
+}
+
+function Layer({
+  category,
+  actors,
+  highlightClasses,
+}: {
+  category: SaveCategory;
+  actors: PlacedActor[];
+  highlightClasses?: Set<string>;
+}) {
   const meta = CATEGORY_META[category];
   if (actors.length === 0) return null;
 
-  // Dots can be drawn as one combined path to keep the DOM small.
   if (meta.shape === 'dot') {
     const r = meta.size / 2;
-    // Single path with many subpaths — far cheaper than N <circle> elements.
-    // M<x>,<y> m -r,0 a r,r 0 1,0 2r,0 a r,r 0 1,0 -2r,0
     const d = actors
       .map((a) => `M${a.x},${a.y}m -${r},0 a ${r},${r} 0 1,0 ${2 * r},0 a ${r},${r} 0 1,0 -${2 * r},0`)
       .join(' ');
-    return <path d={d} fill={meta.color} opacity={meta.opacity} />;
+    return (
+      <g>
+        <path d={d} fill={meta.color} opacity={meta.opacity} />
+        {highlightClasses && highlightClasses.size > 0 && (
+          <HighlightDots actors={actors} highlightClasses={highlightClasses} />
+        )}
+      </g>
+    );
   }
 
-  // Pull shape into a local of the narrowed type so the .map closure sees it.
   const shape: 'rect' | 'triangle' | 'line' = meta.shape;
   return (
-    <g fill={meta.color} opacity={meta.opacity}>
-      {actors.map((a, i) => (
-        <ActorMark key={i} actor={a} shape={shape} size={meta.size} />
-      ))}
+    <g>
+      <g fill={meta.color} opacity={meta.opacity}>
+        {actors.map((a, i) => (
+          <ActorMark key={i} actor={a} shape={shape} size={meta.size} />
+        ))}
+      </g>
+      {highlightClasses && highlightClasses.size > 0 && (
+        <g fill="none" stroke="#fde047" strokeWidth={Math.max(meta.size * 0.15, 50)}>
+          {actors
+            .filter((a) => highlightClasses.has(a.className))
+            .map((a, i) => (
+              <ActorMark key={i} actor={a} shape={shape} size={meta.size * 1.6} />
+            ))}
+        </g>
+      )}
     </g>
   );
+}
+
+function HighlightDots({
+  actors,
+  highlightClasses,
+}: {
+  actors: PlacedActor[];
+  highlightClasses: Set<string>;
+}) {
+  const matches = actors.filter((a) => highlightClasses.has(a.className));
+  if (matches.length === 0) return null;
+  const r = 200;
+  const d = matches
+    .map((a) => `M${a.x},${a.y}m -${r},0 a ${r},${r} 0 1,0 ${2 * r},0 a ${r},${r} 0 1,0 -${2 * r},0`)
+    .join(' ');
+  return <path d={d} fill="none" stroke="#fde047" strokeWidth={60} />;
 }
 
 function ActorMark({
@@ -297,8 +500,6 @@ function ActorMark({
 }) {
   const w = size * actor.scale;
   const h = size * actor.scale;
-  // No SVG flip, so yaw applies directly. UE4 yaw=0 points +X (east); SVG
-  // rotate(0) leaves elements pointing right; matches.
   const transform = `translate(${actor.x},${actor.y}) rotate(${actor.yaw})`;
   if (shape === 'rect') {
     return <rect x={-w / 2} y={-h / 2} width={w} height={h} transform={transform} rx={w / 12} ry={h / 12} />;
@@ -312,7 +513,6 @@ function ActorMark({
       />
     );
   }
-  // line: a thin horizontal segment, rotated by yaw
   return <rect x={-size / 2} y={-size / 10} width={size} height={size / 5} transform={transform} />;
 }
 
@@ -323,32 +523,28 @@ function safeFilename(summary: ParsedSaveSummary): string {
   return `ficsit-topograph-${session || 'save'}-${Date.now()}`;
 }
 
-/** Clone the live SVG, drop the size-100% attributes so the standalone file
- *  uses its viewBox aspect, and wrap with explicit width/height so editors
- *  open it at a usable size. */
-function buildStandaloneSVG(live: SVGSVGElement): string {
+/** Clone the live SVG and replace its viewBox with the full world bounds so
+ *  the exported file always shows everything (regardless of current zoom). */
+function buildStandaloneSVG(live: SVGSVGElement, worldBox: ViewBox): string {
   const clone = live.cloneNode(true) as SVGSVGElement;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
-  // viewBox is preserved on the clone — set a pleasant export size.
-  const vb = clone.viewBox.baseVal;
-  const aspect = vb.height / Math.max(vb.width, 1);
+  clone.setAttribute('viewBox', `${worldBox.x} ${worldBox.y} ${worldBox.w} ${worldBox.h}`);
+  const aspect = worldBox.h / Math.max(worldBox.w, 1);
   const exportW = 2400;
-  const exportH = Math.round(exportW * aspect);
   clone.setAttribute('width', String(exportW));
-  clone.setAttribute('height', String(exportH));
+  clone.setAttribute('height', String(Math.round(exportW * aspect)));
   return new XMLSerializer().serializeToString(clone);
 }
 
-function exportSVG(svg: SVGSVGElement | null, summary: ParsedSaveSummary) {
+function exportSVG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox) {
   if (!svg) return;
-  const text = buildStandaloneSVG(svg);
-  download(text, `${safeFilename(summary)}.svg`, 'image/svg+xml');
+  download(buildStandaloneSVG(svg, worldBox), `${safeFilename(summary)}.svg`, 'image/svg+xml');
 }
 
-async function exportPNG(svg: SVGSVGElement | null, summary: ParsedSaveSummary) {
+async function exportPNG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox) {
   if (!svg) return;
-  const text = buildStandaloneSVG(svg);
+  const text = buildStandaloneSVG(svg, worldBox);
   const blob = new Blob([text], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   try {
@@ -359,9 +555,8 @@ async function exportPNG(svg: SVGSVGElement | null, summary: ParsedSaveSummary) 
       img.onerror = (e) => reject(e);
       img.src = url;
     });
-    const vb = svg.viewBox.baseVal;
-    const aspect = vb.height / Math.max(vb.width, 1);
-    const scale = 2; // 2× for retina-ish quality
+    const aspect = worldBox.h / Math.max(worldBox.w, 1);
+    const scale = 2;
     const baseW = 2400;
     const canvas = document.createElement('canvas');
     canvas.width = baseW * scale;

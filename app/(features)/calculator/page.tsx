@@ -18,6 +18,7 @@ import {
   CALC_CURRENT_KEY,
   CALC_HISTORY_KEY,
   DEFAULT_INPUTS,
+  effectiveAutoSupply,
   summarizePlan,
   type CalcInputs,
   type CalcRow,
@@ -73,7 +74,7 @@ export default function CalculatorPage() {
       })),
       {
         includeAlternates: eff.allowAlternates,
-        autoSupplyRawResources: eff.autoSupplyRaw ?? true,
+        autoSupplyRawResources: effectiveAutoSupply(eff),
       },
     );
     setPlan(result);
@@ -171,6 +172,9 @@ export default function CalculatorPage() {
     return <PageHeader title="Production Calculator" subtitle="Loading game data…" />;
   }
 
+  const autoSupplyOn = effectiveAutoSupply(inputs);
+  const autoSupplyOverridden = typeof inputs.autoSupplyRaw === 'boolean';
+
   return (
     <>
       <PageHeader
@@ -203,13 +207,15 @@ export default function CalculatorPage() {
             <CardHeader
               title="Supply Caps (optional)"
               subtitle={
-                inputs.autoSupplyRaw !== false
-                  ? 'Raw resources are unlimited by default. Add a row only to cap one (e.g., your actual mining throughput).'
-                  : 'Strict mode: every consumed item must be explicitly listed here.'
+                autoSupplyOn
+                  ? inputs.supplies.length === 0
+                    ? 'No supplies listed → every raw resource is treated as unlimited.'
+                    : 'Override active: listed caps applied, everything else still unlimited.'
+                  : 'Strict mode: only the raws listed below are available. Everything the plan consumes must appear here.'
               }
             />
             <CardBody className="space-y-2">
-              {inputs.supplies.length === 0 && inputs.autoSupplyRaw !== false && (
+              {inputs.supplies.length === 0 && autoSupplyOn && (
                 <UnlimitedRawHint rawItems={rawItems} />
               )}
               {inputs.supplies.map((row, idx) => (
@@ -275,16 +281,32 @@ export default function CalculatorPage() {
                 />
                 Allow alternate recipes <span className="text-[10px] text-ficsit-subtle">(Hard Drive only — MAM-researched recipes are always available)</span>
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={inputs.autoSupplyRaw !== false}
-                  onChange={(e) => setInputs((i) => ({ ...i, autoSupplyRaw: e.target.checked }))}
-                  className="h-4 w-4 accent-ficsit-accent"
-                />
-                Auto-supply unspecified raw resources
-                <span className="text-[10px] text-ficsit-subtle">(treat as unlimited)</span>
-              </label>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={autoSupplyOn}
+                    onChange={(e) => setInputs((i) => ({ ...i, autoSupplyRaw: e.target.checked }))}
+                    className="h-4 w-4 accent-ficsit-accent"
+                  />
+                  Auto-supply unspecified raw resources
+                  <span className="text-[10px] text-ficsit-subtle">(treat as unlimited)</span>
+                </label>
+                {autoSupplyOverridden ? (
+                  <button
+                    type="button"
+                    onClick={() => setInputs((i) => ({ ...i, autoSupplyRaw: undefined }))}
+                    className="text-[10px] uppercase tracking-wide text-ficsit-accent hover:underline"
+                    title="Stop overriding — let the planner pick based on whether you've listed any supplies"
+                  >
+                    Use default
+                  </button>
+                ) : (
+                  <span className="text-[10px] uppercase tracking-wide text-ficsit-subtle">
+                    Auto · {inputs.supplies.length === 0 ? 'no supplies → on' : 'supplies listed → off'}
+                  </span>
+                )}
+              </div>
             </CardBody>
           </Card>
         </div>
@@ -444,7 +466,7 @@ function PlanView({ plan, inputs, data, onEnableAlternates, onEnableAutoSupply }
           supplies: inputs.supplies.filter((s) => s.item && s.rate > 0).map((s) => ({ item: s.item })),
           targets: inputs.targets.filter((t) => t.item).map((t) => ({ item: t.item })),
           includeAlternates: inputs.allowAlternates,
-          autoSupplyRawResources: inputs.autoSupplyRaw ?? true,
+          autoSupplyRawResources: effectiveAutoSupply(inputs),
         })
       : null;
 
@@ -460,7 +482,7 @@ function PlanView({ plan, inputs, data, onEnableAlternates, onEnableAutoSupply }
           <InfeasibilityHelp
             diagnosis={diagnosis}
             alternatesEnabled={inputs.allowAlternates}
-            autoSupplyRaw={inputs.autoSupplyRaw ?? true}
+            autoSupplyRaw={effectiveAutoSupply(inputs)}
             onEnableAlternates={onEnableAlternates}
             onEnableAutoSupply={onEnableAutoSupply}
           />

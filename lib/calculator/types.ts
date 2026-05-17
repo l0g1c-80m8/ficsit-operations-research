@@ -11,8 +11,22 @@ export interface CalcInputs {
   supplies: CalcRow[];
   targets: CalcRow[];
   allowAlternates: boolean;
-  /** When true (default), raw resources not in `supplies` are treated as unlimited. */
+  /** Manual override for auto-supply behavior. When undefined, the effective
+   *  setting is derived from `supplies.length`:
+   *    - no supplies listed → auto-supply ON (every raw unlimited)
+   *    - any supplies listed → auto-supply OFF (only listed raws available)
+   *  This stops the Converter recipe from routing around explicit supply caps
+   *  by transmuting auto-supplied raws. Setting this to `true`/`false`
+   *  overrides the derived default (for advanced "partial caps + autofill"). */
   autoSupplyRaw?: boolean;
+}
+
+/** Effective auto-supply for the current inputs. Pure function of the two
+ *  visible inputs (supplies + the override); used by both the solver call
+ *  site and the UI to display the right state. */
+export function effectiveAutoSupply(inputs: CalcInputs): boolean {
+  if (typeof inputs.autoSupplyRaw === 'boolean') return inputs.autoSupplyRaw;
+  return inputs.supplies.filter((s) => s.item && s.rate > 0).length === 0;
 }
 
 /** Compact summary of a plan stored alongside its inputs so the history list
@@ -38,11 +52,11 @@ export const CALC_CURRENT_KEY = 'ficsit.calculator.current.v1';
 export const CALC_HISTORY_KEY = 'ficsit.calculator.history.v1';
 
 export const DEFAULT_INPUTS: CalcInputs = {
-  // Empty by default — raw resources auto-supplied. Users add a row only to cap one.
+  // Empty by default — `effectiveAutoSupply` derives auto-supply ON. The user
+  // adding even one supply row flips the default to strict (no override).
   supplies: [],
   targets: [{ id: 'tgt-default', item: 'Desc_IronPlate_C', rate: 60 }],
   allowAlternates: false,
-  autoSupplyRaw: true,
 };
 
 export function summarizePlan(plan: FactoryPlan): CalcPlanSummary {

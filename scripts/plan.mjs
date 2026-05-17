@@ -114,6 +114,7 @@ const opts = {
   interactive: false,
   raw: false,
   strict: false,
+  autoRaw: false,
   topRecipes: Infinity,
   help: false,
 };
@@ -128,6 +129,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--weight') opts.weight = Number(args[++i]);
   else if (a === '--raw') opts.raw = true;
   else if (a === '--strict' || a === '--no-auto-raw') opts.strict = true;
+  else if (a === '--auto-raw' || a === '--unlimited-raws') opts.autoRaw = true;
   else if (a === '--top') opts.topRecipes = Number(args[++i]);
   else if (a === '--supply' || a === '-s') {
     const value = args[++i] ?? '';
@@ -281,8 +283,10 @@ Flags:
       --weight N          Objective weight on the target (default: 1).
       --alts              Allow alternate recipes.
       --top N             Limit recipe lines printed to top N by machines.
-      --raw               (deprecated; auto-supply is on by default).
-      --strict            Disable auto-supply. Every consumed raw must be listed via --supply.
+      --raw               (deprecated; auto-supply is on when no --supply is given).
+      --strict            Force-disable auto-supply. Every consumed raw must be listed via --supply.
+      --auto-raw          Force auto-supply ON even when --supply is given (advanced; otherwise --supply
+                          implies strict so the Converter can't transmute around your caps).
   -i, --interactive       Prompt-driven mode.
       --list KIND         List "recipes" (default), "items", or "buildings".
   -h, --help              Show this help.
@@ -314,10 +318,18 @@ function recipePowerKW(r) {
 }
 
 function solveFactory({ data, supplies, targets, includeAlternates }) {
-  // Default behavior: auto-supply every raw resource (unlimited). User can
-  // override a specific cap via --supply, or disable entirely via --strict.
+  // Auto-supply rules:
+  //   * no --supply flags → ON (every raw unlimited; fast "how much can I
+  //     make" path).
+  //   * one or more --supply flags → OFF (only listed raws available; this
+  //     stops the Converter recipe from transmuting unlimited Quartz/etc.
+  //     around the user's caps).
+  //   * --strict        → force OFF (overrides everything).
+  //   * --auto-raw      → force ON (partial-caps mode for advanced use).
+  const autoSupplyDefault = supplies.length === 0;
+  const autoSupply = opts.strict ? false : opts.autoRaw ? true : autoSupplyDefault;
   let suppliesEff = [...supplies];
-  if (!opts.strict) {
+  if (autoSupply) {
     const userItems = new Set(supplies.map((s) => s.item));
     for (const raw of Object.keys(data.resources)) {
       if (!userItems.has(raw)) {

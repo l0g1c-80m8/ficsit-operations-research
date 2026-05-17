@@ -150,10 +150,20 @@ The objective auto-switches based on Pioneer intent:
 
 #### Auto-supply
 
-Raw resources not in the supply list are treated as **unlimited** by default.
-A Pioneer wishing to produce 60 Iron Plate per minute need only specify that
-single target — the planner assumes Iron Ore is available. Toggle the
-*Auto-supply unspecified raw resources* option off to enforce strict mode.
+The planner auto-derives the right behavior from your inputs:
+
+- **No supply caps listed** — every raw is treated as unlimited. A Pioneer
+  wishing to produce 60 Iron Plate per minute just specifies that single
+  target; the planner assumes Iron Ore is available.
+- **One or more supply caps listed** — strict mode. Only the raws you list
+  are available. This stops the Converter recipe from transmuting unlimited
+  Quartz (or any other unspecified raw) into the resources you capped — a
+  pre-1.1 trap where bounding Iron Ore could still produce a plan running
+  on synthesized iron from elsewhere.
+
+Toggle *Auto-supply unspecified raw resources* manually for the advanced
+case ("cap Iron Ore at 60 but leave everything else unlimited"), or hit
+*Use default* to return to the derived behavior.
 
 #### Persistence and history
 
@@ -312,7 +322,8 @@ The script prints an ANSI-colored, ASCII-tabled summary:
 | `--rate N` | Required minimum output rate per minute. When set, solver minimizes machines instead of maximizing output |
 | `--weight N` | Objective weight on the target (default 1; for multi-target plans) |
 | `--alts` | Allow alternate recipes |
-| `--strict` | Disable auto-supply (every raw must be specified) |
+| `--strict` | Force-disable auto-supply (every raw must be specified) |
+| `--auto-raw` | Force auto-supply ON even when `--supply` is given (advanced) |
 | `--top N` | Truncate recipe-line dump to top N by machine count |
 | `--list KIND` | List `recipes` (default), `items`, or `buildings` |
 | `-i, --interactive` | Prompt-driven mode |

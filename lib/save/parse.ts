@@ -36,14 +36,20 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
   const counts = new Map<string, number>();
   const categoryCounts: Record<SaveCategory, number> = {
     foundation: 0,
-    belt: 0,
-    pipe: 0,
-    power: 0,
     production: 0,
-    storage: 0,
     extractor: 0,
-    vehicle: 0,
+    generator: 0,
+    power_grid: 0,
+    power_storage: 0,
+    conveyor: 0,
+    pipeline: 0,
+    fluid_storage: 0,
+    item_storage: 0,
     rail: 0,
+    train: 0,
+    vehicle: 0,
+    pioneer: 0,
+    decoration: 0,
     misc: 0,
   };
   const actors: PlacedActor[] = [];

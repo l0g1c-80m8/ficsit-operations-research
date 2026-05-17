@@ -41,8 +41,22 @@ export function Topograph({
 }) {
   const initialVisible = useMemo<Record<SaveCategory, boolean>>(
     () => ({
-      foundation: true, rail: true, belt: true, pipe: true, power: true,
-      storage: true, extractor: true, production: true, vehicle: true, misc: false,
+      foundation: true,
+      production: true,
+      extractor: true,
+      generator: true,
+      power_grid: true,
+      power_storage: true,
+      conveyor: true,
+      pipeline: true,
+      fluid_storage: true,
+      item_storage: true,
+      rail: true,
+      train: true,
+      vehicle: true,
+      pioneer: true,
+      decoration: false, // off by default — usually thousands of signs/lights add clutter
+      misc: false,
     }),
     [],
   );
@@ -89,8 +103,14 @@ export function Topograph({
     return pt.matrixTransform(inv);
   }, []);
 
-  const onWheel = useCallback(
-    (e: React.WheelEvent<SVGSVGElement>) => {
+  // React 18+ attaches `onWheel` to the document root as a *passive* listener,
+  // so `e.preventDefault()` inside an `onWheel` prop is a no-op and the page
+  // continues to scroll. Attach a native non-passive handler on the SVG so
+  // the wheel only zooms the map and never bubbles to page scroll.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
       e.preventDefault();
       const worldPt = screenToWorld(e);
       if (!worldPt) return;
@@ -105,9 +125,10 @@ export function Topograph({
         const ratioY = (worldPt.y - vb.y) / vb.h;
         return { x: worldPt.x - ratioX * newW, y: worldPt.y - ratioY * newH, w: newW, h: newH };
       });
-    },
-    [screenToWorld, worldBox],
-  );
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, [screenToWorld, worldBox]);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<SVGSVGElement>) => {
@@ -250,7 +271,6 @@ export function Topograph({
             height="100%"
             preserveAspectRatio="xMidYMid meet"
             xmlns="http://www.w3.org/2000/svg"
-            onWheel={onWheel}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}

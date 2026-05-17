@@ -11,18 +11,26 @@ export interface SaveHeaderInfo {
 }
 
 /** Coarse category — buckets every save actor by typePath into one of these
- * groups so the topograph can render each in its own color/shape, with toggles. */
+ * groups so the topograph can render each in its own color/shape, with toggles.
+ * Names are chosen so each bucket has a clearly delimited scope; do NOT lump
+ * extractors with generators or pipes with fluid tanks. */
 export type SaveCategory =
-  | 'foundation'
-  | 'belt'
-  | 'pipe'
-  | 'power'
-  | 'production'
-  | 'storage'
-  | 'extractor'
-  | 'vehicle'
-  | 'rail'
-  | 'misc';
+  | 'foundation'      // foundations, walls, roofs, ramps, beams, frames, structural
+  | 'production'      // production machines (Constructor … Quantum Encoder)
+  | 'extractor'       // miners, oil/water/fracking extractors + pressurizer
+  | 'generator'       // power generators (biomass, coal, fuel, nuclear, geothermal)
+  | 'power_grid'      // power lines, poles, switches, towers
+  | 'power_storage'   // power storage units + Alien Power Augmenter
+  | 'conveyor'        // belts, lifts, splitters, mergers, conveyor poles
+  | 'pipeline'        // pipes, pumps, valves, junctions, supports, flow meters
+  | 'fluid_storage'   // fluid buffers, pipe storage tanks
+  | 'item_storage'    // storage containers, dimensional depot, central storage
+  | 'rail'            // rail track, stations, freight platforms, signals
+  | 'train'           // locomotives, freight wagons (rolling stock)
+  | 'vehicle'         // road vehicles (trucks, tractors, explorer, factory cart)
+  | 'pioneer'         // hub, workbench, equipment workshop, AWESOME sink/shop, MAM
+  | 'decoration'      // signs, lights, beacons, displays
+  | 'misc';           // anything unrecognized
 
 export interface PlacedActor {
   className: string;
@@ -61,4 +69,6 @@ export interface SaveHistoryEntry {
   summary: ParsedSaveSummary;
 }
 
-export const SAVE_HISTORY_KEY = 'ficsit.save.history.v1';
+// v2: category taxonomy split (extractor/generator/power_storage, train,
+// pioneer, decoration, fluid_storage); old v1 entries are ignored on load.
+export const SAVE_HISTORY_KEY = 'ficsit.save.history.v2';

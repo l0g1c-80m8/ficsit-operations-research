@@ -45,8 +45,14 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
       }
     }
 
+    // Power draw sums production + extractor (the two categories whose
+    // SatBuilding.metadata.powerConsumption is meaningful). Generators have
+    // power *production* in the data but it isn't on SatBuilding.metadata, so
+    // we don't roll it up here. The manifest lists every recognized building
+    // grouped by save category.
     let powerKW = 0;
-    const productionList: { className: string; name: string; count: number; mw: number }[] = [];
+    let productionTotal = 0;
+    const manifest: { className: string; name: string; count: number; mw: number; pcat: ReturnType<typeof categorize> }[] = [];
     for (const [cls, count] of buildingByClass.entries()) {
       const b = data.buildings[buildableToDescriptor(cls)];
       if (!b) continue;
@@ -54,12 +60,13 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
       const mwEach = b.metadata?.powerConsumption ?? 0;
       if (pcat === 'production' || pcat === 'extractor') {
         powerKW += mwEach * count;
+        productionTotal += count;
       }
-      if (pcat === 'production' || pcat === 'extractor' || pcat === 'storage') {
-        productionList.push({ className: b.className, name: b.name, count, mw: mwEach * count });
+      if (pcat === 'production' || pcat === 'extractor' || pcat === 'generator' || pcat === 'power_storage' || pcat === 'item_storage' || pcat === 'fluid_storage') {
+        manifest.push({ className: b.className, name: b.name, count, mw: mwEach * count, pcat });
       }
     }
-    productionList.sort((a, b) => b.count - a.count);
+    manifest.sort((a, b) => b.count - a.count);
 
     const foundations = summary.categoryCounts.foundation ?? 0;
     // Standard 8m × 8m tile = 64 m². Wall/roof actors mixed in here too so this
@@ -70,8 +77,8 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
       foundations,
       estFloorAreaM2,
       powerKW,
-      productionTotal: productionList.reduce((a, p) => a + p.count, 0),
-      productionList: productionList.slice(0, 18),
+      productionTotal,
+      manifest: manifest.slice(0, 24),
       totalKnownBuildings: [...buildingByClass.values()].reduce((a, b) => a + b, 0),
     };
   }, [summary, data]);
@@ -83,7 +90,7 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
     { icon: Factory, label: 'Production buildings', value: fmt(computed.productionTotal) },
     { icon: Zap, label: 'Estimated power draw', value: `${fmt(computed.powerKW)} MW`, sub: '@ 100% clock' },
     { icon: Layers, label: 'Foundations', value: fmt(computed.foundations), sub: `≈ ${fmt(computed.estFloorAreaM2)} m²` },
-    { icon: Boxes, label: 'Belts + pipes + power', value: fmt((summary.categoryCounts.belt ?? 0) + (summary.categoryCounts.pipe ?? 0) + (summary.categoryCounts.power ?? 0)) },
+    { icon: Boxes, label: 'Logistics network', value: fmt((summary.categoryCounts.conveyor ?? 0) + (summary.categoryCounts.pipeline ?? 0) + (summary.categoryCounts.power_grid ?? 0)), sub: 'conveyors · pipes · power' },
     { icon: Hash, label: 'Total placed actors', value: fmt(summary.actorCount) },
     { icon: Coins, label: 'Identified buildings', value: fmt(computed.totalKnownBuildings) },
   ];
@@ -99,15 +106,15 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
         </CardBody>
       </Card>
 
-      {computed.productionList.length > 0 && (
+      {computed.manifest.length > 0 && (
         <Card>
           <CardHeader
             title="Building manifest"
-            subtitle="Every recognized production / extraction / storage building this save has placed."
+            subtitle="Every recognized production, extractor, generator, and storage building this save has placed."
           />
           <CardBody>
             <ul className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {computed.productionList.map((b) => (
+              {computed.manifest.map((b) => (
                 <li
                   key={b.className}
                   className="flex items-center gap-3 rounded-md border border-ficsit-border bg-ficsit-panel2 px-3 py-2"

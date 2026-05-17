@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/shell/AppShell';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { ItemIcon } from '@/components/ui/ItemIcon';
 import { useGameData } from '@/lib/data/use-data';
@@ -86,16 +87,16 @@ export default function RecipesPage() {
             ))}
           </div>
 
-          <select
+          <Select
             value={building}
             onChange={(e) => setBuilding(e.target.value)}
-            className="h-9 rounded-md border border-ficsit-border bg-ficsit-panel2 px-2 text-sm"
+            className="w-48"
           >
             <option value="all">All buildings</option>
             {buildings.map((b) => (
               <option key={b.className} value={b.className}>{b.name}</option>
             ))}
-          </select>
+          </Select>
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">

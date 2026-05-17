@@ -2,6 +2,7 @@
 import { Drawer } from '@/components/ui/Drawer';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { FileButton } from '@/components/ui/FileButton';
 import { ItemIcon } from '@/components/ui/ItemIcon';
 import { fmt } from '@/lib/utils';
 import type { CalcSaveEntry } from '@/lib/calculator/types';
@@ -42,19 +43,9 @@ export function CalcHistory({
             <Button variant="secondary" size="sm" onClick={onExport}>
               <Download className="h-3.5 w-3.5" /> Export
             </Button>
-            <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-ficsit-border bg-ficsit-panel2 px-2 text-xs font-medium text-ficsit-text hover:bg-ficsit-border">
+            <FileButton accept="application/json,.json" onSelect={onImport}>
               <Upload className="h-3.5 w-3.5" /> Import
-              <input
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) onImport(f);
-                  e.currentTarget.value = '';
-                }}
-              />
-            </label>
+            </FileButton>
           </div>
           {history.length > 0 && (
             <Button variant="danger" size="sm" onClick={onClearAll}>

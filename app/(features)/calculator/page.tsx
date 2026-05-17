@@ -3,6 +3,9 @@ import { useMemo, useState } from 'react';
 import { PageHeader } from '@/components/shell/AppShell';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { StatTile } from '@/components/ui/StatTile';
+import { TabGroup, type Tab } from '@/components/ui/TabGroup';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ItemBadge } from '@/components/ui/ItemBadge';
@@ -363,16 +366,16 @@ function RateRow({
         ) : (
           <div className="h-7 w-7 shrink-0 rounded-md border border-dashed border-ficsit-border bg-ficsit-panel2/40" />
         )}
-        <select
+        <Select
           value={row.item}
           onChange={(e) => onChange({ ...row, item: e.target.value })}
-          className="h-9 w-full min-w-0 flex-1 rounded-md border border-ficsit-border bg-ficsit-panel2 px-2 text-sm"
+          className="min-w-0 flex-1"
         >
           <option value="">— select item —</option>
           {options.map((o) => (
             <option key={o.className} value={o.className}>{o.name}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {/* Rate input + remove button — stay together as a unit */}
@@ -470,35 +473,23 @@ function PlanView({ plan, inputs, data, onEnableAlternates, onEnableAutoSupply }
     <div className="space-y-4">
       <Card>
         <CardHeader title="Plan Summary" right={<Badge tone="good">Optimal</Badge>} />
-        <CardBody className="grid grid-cols-3 gap-4">
-          <Stat label="Total Machines" value={fmt(plan.totalMachines, 1)} />
-          <Stat label="Total Power" value={`${fmt(plan.totalPowerKW)} MW`} />
-          <Stat label="Recipe Lines" value={String(plan.lines.length)} />
+        <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <StatTile label="Total Machines" value={fmt(plan.totalMachines, 1)} tone="accent" />
+          <StatTile label="Total Power" value={`${fmt(plan.totalPowerKW)} MW`} tone="accent" />
+          <StatTile label="Recipe Lines" value={String(plan.lines.length)} tone="accent" />
         </CardBody>
       </Card>
 
-      <div className="flex items-end gap-1 border-b border-ficsit-border">
-        {([
+      <TabGroup<PlanTab>
+        tabs={[
           { id: 'summary', label: 'Summary', icon: BarChart3 },
           { id: 'graph', label: 'Graph', icon: Network },
           { id: 'economics', label: 'Economics', icon: Activity },
           { id: 'recipes', label: 'Recipes', icon: ListTree },
-        ] as { id: PlanTab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={cn(
-              'inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors',
-              tab === t.id
-                ? 'border-ficsit-accent text-ficsit-text'
-                : 'border-transparent text-ficsit-subtle hover:text-ficsit-text',
-            )}
-          >
-            <t.icon className="h-3.5 w-3.5" />
-            {t.label}
-          </button>
-        ))}
-      </div>
+        ] as Tab<PlanTab>[]}
+        active={tab}
+        onSelect={setTab}
+      />
 
       {tab === 'summary' && <SummaryTab plan={plan} />}
       {tab === 'graph' && <PlanGraph plan={plan} />}
@@ -607,11 +598,3 @@ function RecipesTab({ plan }: { plan: FactoryPlan }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-ficsit-subtle">{label}</div>
-      <div className="mt-1 font-mono text-2xl text-ficsit-accent">{value}</div>
-    </div>
-  );
-}

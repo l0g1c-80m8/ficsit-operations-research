@@ -1,6 +1,7 @@
 'use client';
 import { useMemo } from 'react';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
+import { StatTile } from '@/components/ui/StatTile';
 import { ItemIcon } from '@/components/ui/ItemIcon';
 import { useGameData } from '@/lib/data/use-data';
 import { fmt } from '@/lib/utils';
@@ -94,7 +95,7 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
         <CardHeader title="Factory snapshot" subtitle="Derived from the save's actor histogram cross-referenced with the game data." />
         <CardBody className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
           {stats.map((s) => (
-            <StatTile key={s.label} icon={s.icon} label={s.label} value={s.value} sub={s.sub} />
+            <StatTile key={s.label} icon={s.icon} label={s.label} value={s.value} sub={s.sub} tone="accent" compact />
           ))}
         </CardBody>
       </Card>
@@ -128,25 +129,3 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
   );
 }
 
-function StatTile({
-  icon: Icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div className="rounded-md border border-ficsit-border bg-ficsit-panel2 p-3">
-      <div className="flex items-start justify-between">
-        <div className="text-[10px] uppercase tracking-widest text-ficsit-subtle">{label}</div>
-        <Icon className="h-4 w-4 text-ficsit-subtle" />
-      </div>
-      <div className="mt-1 font-mono text-xl tabular-nums text-ficsit-accent">{value}</div>
-      {sub && <div className="mt-0.5 text-[10px] text-ficsit-subtle">{sub}</div>}
-    </div>
-  );
-}

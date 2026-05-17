@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { PageHeader } from '@/components/shell/AppShell';
 import { Button } from '@/components/ui/Button';
+import { FileButton } from '@/components/ui/FileButton';
 import { useLocalStorage } from '@/lib/storage/use-local-storage';
 import { DEFAULT_STATE, PLANNER_KEY, type PlannerState, type Project, type Task } from '@/lib/planner/types';
 import { KPIStrip } from '@/components/planner/KPIStrip';
@@ -193,19 +194,9 @@ export default function PlannerPage() {
             <Button variant="secondary" size="sm" onClick={exportState}>
               <Download className="h-3.5 w-3.5" /> Export
             </Button>
-            <label className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-ficsit-border bg-ficsit-panel2 px-3 text-sm font-medium text-ficsit-text hover:bg-ficsit-border">
+            <FileButton size="md" accept="application/json,.json" onSelect={importState}>
               <Upload className="h-3.5 w-3.5" /> Import
-              <input
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void importState(f);
-                  e.currentTarget.value = '';
-                }}
-              />
-            </label>
+            </FileButton>
             <Button variant="ghost" size="sm" onClick={resetToDefaults} title="Reset to sample projects">
               <RotateCcw className="h-3.5 w-3.5" />
             </Button>

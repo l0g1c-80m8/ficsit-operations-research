@@ -4,7 +4,10 @@ import { cn, fmt } from '@/lib/utils';
 import type { Project, Task, TaskStatus, Priority, ActivityEvent } from '@/lib/planner/types';
 import { ItemIcon } from '@/components/ui/ItemIcon';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
+import { ProgressBar } from '@/components/ui/ProgressBar';
+import { TabGroup, type Tab as UITab } from '@/components/ui/TabGroup';
 import { ProjectStatusPill, TaskStatusPill, PriorityPill } from './StatusPill';
 import {
   Activity,
@@ -65,33 +68,16 @@ export function ProjectDetail({
         onDeleteProject={onDeleteProject}
       />
 
-      <div className="border-b border-ficsit-border bg-ficsit-bg/40 px-6">
-        <div className="flex items-end gap-1">
-          {(['tasks', 'targets', 'activity'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={cn(
-                'border-b-2 px-3 py-2 text-sm transition-colors',
-                tab === t
-                  ? 'border-ficsit-accent text-ficsit-text'
-                  : 'border-transparent text-ficsit-subtle hover:text-ficsit-text',
-              )}
-            >
-              <span className="inline-flex items-center gap-1.5 capitalize">
-                {t === 'tasks' && <ListTodo className="h-3.5 w-3.5" />}
-                {t === 'targets' && <Target className="h-3.5 w-3.5" />}
-                {t === 'activity' && <Activity className="h-3.5 w-3.5" />}
-                {t}
-                {t === 'tasks' && (
-                  <span className="ml-1 rounded bg-ficsit-panel2 px-1 text-[10px] text-ficsit-subtle">
-                    {project.tasks.length}
-                  </span>
-                )}
-              </span>
-            </button>
-          ))}
-        </div>
+      <div className="bg-ficsit-bg/40 px-6">
+        <TabGroup<Tab>
+          tabs={[
+            { id: 'tasks', label: 'Tasks', icon: ListTodo, count: project.tasks.length },
+            { id: 'targets', label: 'Targets', icon: Target },
+            { id: 'activity', label: 'Activity', icon: Activity },
+          ] as UITab<Tab>[]}
+          active={tab}
+          onSelect={setTab}
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -114,11 +100,7 @@ export function ProjectDetail({
           <span>
             {done}/{project.tasks.length} tasks complete · {progress}%
           </span>
-          <div className="ml-4 flex-1">
-            <div className="h-1 overflow-hidden rounded-full bg-ficsit-panel2">
-              <div className="h-full bg-ficsit-accent transition-[width]" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
+          <ProgressBar value={progress / 100} className="ml-4 flex-1" />
         </div>
       </div>
     </div>
@@ -352,16 +334,15 @@ function TargetsTab({ project, onEdit }: { project: Project; onEdit: (patch: Par
               —
             </div>
           )}
-          <select
+          <Select
             value={project.targetItem ?? ''}
             onChange={(e) => onEdit({ targetItem: e.target.value || undefined })}
-            className="h-9 rounded-md border border-ficsit-border bg-ficsit-panel2 px-2 text-sm"
           >
             <option value="">— no target —</option>
             {items.map((it) => (
               <option key={it.className} value={it.className}>{it.name}</option>
             ))}
-          </select>
+          </Select>
           <div className="relative">
             <Input
               type="number"

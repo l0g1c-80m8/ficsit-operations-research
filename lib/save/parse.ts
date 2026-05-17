@@ -2,11 +2,12 @@
 //
 // Uses @etothepii/satisfactory-file-parser's synchronous Parser.ParseSave to
 // extract the header and walk every level's objects, collecting world-space
-// translations and a per-class histogram.
+// translations, rotations, and a per-class histogram.
 
-import type { ParsedSaveSummary, PlacedActor, SaveHeaderInfo } from './types';
+import type { ParsedSaveSummary, PlacedActor, SaveCategory, SaveHeaderInfo } from './types';
+import { categorize, quaternionToYawDeg } from './categorize';
 
-const MAX_ACTORS_FOR_VIZ = 50000;
+const MAX_ACTORS_FOR_VIZ = 80000;
 
 export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
   const mod = await import('@etothepii/satisfactory-file-parser');
@@ -33,6 +34,18 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
   };
 
   const counts = new Map<string, number>();
+  const categoryCounts: Record<SaveCategory, number> = {
+    foundation: 0,
+    belt: 0,
+    pipe: 0,
+    power: 0,
+    production: 0,
+    storage: 0,
+    extractor: 0,
+    vehicle: 0,
+    rail: 0,
+    misc: 0,
+  };
   const actors: PlacedActor[] = [];
   let actorCount = 0;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -47,9 +60,23 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
       if (isSaveEntity(obj)) {
         actorCount++;
         const t = obj.transform?.translation;
+        const r = obj.transform?.rotation;
+        const s = obj.transform?.scale3d;
         if (t && Number.isFinite(t.x) && Number.isFinite(t.y)) {
+          const category = categorize(typePath);
+          categoryCounts[category]++;
           if (actors.length < MAX_ACTORS_FOR_VIZ) {
-            actors.push({ className, x: t.x, y: t.y, z: t.z ?? 0 });
+            const yaw = quaternionToYawDeg(r);
+            const scale = Math.max(Math.abs(s?.x ?? 1), Math.abs(s?.y ?? 1)) || 1;
+            actors.push({
+              className,
+              x: t.x,
+              y: t.y,
+              z: t.z ?? 0,
+              yaw,
+              scale,
+              category,
+            });
           }
           if (t.x < minX) minX = t.x;
           if (t.x > maxX) maxX = t.x;
@@ -68,6 +95,7 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
       .map(([className, count]) => ({ className, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 50),
+    categoryCounts,
     bbox: actors.length > 0 ? { minX, maxX, minY, maxY } : null,
   };
 }

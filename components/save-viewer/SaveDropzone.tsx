@@ -6,7 +6,11 @@ import { cn } from '@/lib/utils';
 import type { ParsedSaveSummary } from '@/lib/save/types';
 import { parseSaveFile } from '@/lib/save/parse';
 
-export function SaveDropzone({ onParsed }: { onParsed: (s: ParsedSaveSummary) => void }) {
+export function SaveDropzone({
+  onParsed,
+}: {
+  onParsed: (s: ParsedSaveSummary, file: File) => void;
+}) {
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -17,7 +21,7 @@ export function SaveDropzone({ onParsed }: { onParsed: (s: ParsedSaveSummary) =>
       setBusy(true);
       try {
         const result = await parseSaveFile(file);
-        onParsed(result);
+        onParsed(result, file);
       } catch (e) {
         setError((e as Error).message || 'Failed to parse save file.');
       } finally {

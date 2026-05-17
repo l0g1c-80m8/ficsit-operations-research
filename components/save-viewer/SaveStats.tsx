@@ -6,7 +6,7 @@ import { ItemIcon } from '@/components/ui/ItemIcon';
 import { useGameData } from '@/lib/data/use-data';
 import { fmt } from '@/lib/utils';
 import type { ParsedSaveSummary } from '@/lib/save/types';
-import { categorize } from '@/lib/save/categorize';
+import { buildableToDescriptor, categorize } from '@/lib/save/categorize';
 import { Boxes, Coins, Factory, Hash, Layers, Zap } from 'lucide-react';
 
 /** Compact, data-driven analytics computed from the actor histogram + game data:
@@ -27,21 +27,20 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
   const computed = useMemo(() => {
     if (!data) return null;
 
-    // Aggregate building counts by matching simplified class names against
-    // game-data building classes.
+    // Aggregate building counts. Save actors carry the *buildable* class
+    // (`Build_*_C`), so we keep that as the key (categorize() expects it), but
+    // look up the descriptor form (`Desc_*_C`) in the game data.
     const buildingByClass = new Map<string, number>();
     for (const row of summary.classCounts) {
-      if (data.buildings[row.className]) {
+      if (data.buildings[buildableToDescriptor(row.className)]) {
         buildingByClass.set(row.className, (buildingByClass.get(row.className) ?? 0) + row.count);
       }
     }
-    // Also walk actors for anything that aggregated only there (the histogram
-    // is capped at top-50 classes — we want the long tail too).
+    // Walk the actor list for classes that fell off the top-50 histogram.
     for (const a of summary.actors) {
       const cls = a.className;
-      if (data.buildings[cls] && !buildingByClass.has(cls)) {
-        // Don't double-count entries already in classCounts; this catches
-        // classes that fell off the top-50 list.
+      if (buildingByClass.has(cls)) continue;
+      if (data.buildings[buildableToDescriptor(cls)]) {
         buildingByClass.set(cls, (buildingByClass.get(cls) ?? 0) + 1);
       }
     }
@@ -49,7 +48,7 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
     let powerKW = 0;
     const productionList: { className: string; name: string; count: number; mw: number }[] = [];
     for (const [cls, count] of buildingByClass.entries()) {
-      const b = data.buildings[cls];
+      const b = data.buildings[buildableToDescriptor(cls)];
       if (!b) continue;
       const pcat = categorize(cls);
       const mwEach = b.metadata?.powerConsumption ?? 0;
@@ -57,7 +56,7 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
         powerKW += mwEach * count;
       }
       if (pcat === 'production' || pcat === 'extractor' || pcat === 'storage') {
-        productionList.push({ className: cls, name: b.name, count, mw: mwEach * count });
+        productionList.push({ className: b.className, name: b.name, count, mw: mwEach * count });
       }
     }
     productionList.sort((a, b) => b.count - a.count);

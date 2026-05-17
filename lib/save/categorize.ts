@@ -46,6 +46,12 @@ export const CATEGORY_META: Record<
   misc: { label: 'Other / signs / pioneer-placed', color: '#64748b', shape: 'dot', size: 60, opacity: 0.4, order: 9 },
 };
 
+/** Save actors carry the *buildable* class (`Build_FooMk1_C`); game data is keyed
+ *  by the *descriptor* class (`Desc_FooMk1_C`). Convert so lookups line up. */
+export function buildableToDescriptor(className: string): string {
+  return className.startsWith('Build_') ? 'Desc_' + className.slice('Build_'.length) : className;
+}
+
 /** Quaternion to yaw (degrees). Satisfactory uses UE4 XYZW format. */
 export function quaternionToYawDeg(q: { x: number; y: number; z: number; w: number } | undefined): number {
   if (!q) return 0;

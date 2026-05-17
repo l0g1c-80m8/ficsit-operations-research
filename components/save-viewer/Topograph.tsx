@@ -74,6 +74,13 @@ export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
         subtitle={`${fmt(summary.actors.length)} actors · ${fmt(worldW / 100, 0)}m × ${fmt(worldH / 100, 0)}m footprint`}
         right={
           <div className="flex items-center gap-1">
+            <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary)} title="Download as SVG">
+              <Download className="h-3.5 w-3.5" /> SVG
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary)} title="Download as PNG (2× resolution)">
+              <ImageDown className="h-3.5 w-3.5" /> PNG
+            </Button>
+            <span className="mx-1 h-5 w-px bg-ficsit-border" />
             <Button variant="ghost" size="sm" onClick={() => setZoom((z) => Math.max(0.5, z / 1.4))} title="Zoom out">
               <ZoomOut className="h-3.5 w-3.5" />
             </Button>
@@ -108,6 +115,7 @@ export function Topograph({ summary }: { summary: ParsedSaveSummary }) {
         >
           <div style={{ width: viewW * zoom, height: viewH * zoom }}>
             <svg
+              ref={svgRef}
               // Satisfactory: +X east, +Y south (UE4 convention). SVG default
               // already puts smaller Y at the top — meaning -Y (north) ends up
               // at the top with no flip. East lands on the right naturally.
@@ -306,4 +314,67 @@ function ActorMark({
   }
   // line: a thin horizontal segment, rotated by yaw
   return <rect x={-size / 2} y={-size / 10} width={size} height={size / 5} transform={transform} />;
+}
+
+/* ─────────────────── SVG / PNG export ─────────────────── */
+
+function safeFilename(summary: ParsedSaveSummary): string {
+  const session = (summary.header?.sessionName ?? 'save').replace(/[^A-Za-z0-9-]+/g, '_').slice(0, 40);
+  return `ficsit-topograph-${session || 'save'}-${Date.now()}`;
+}
+
+/** Clone the live SVG, drop the size-100% attributes so the standalone file
+ *  uses its viewBox aspect, and wrap with explicit width/height so editors
+ *  open it at a usable size. */
+function buildStandaloneSVG(live: SVGSVGElement): string {
+  const clone = live.cloneNode(true) as SVGSVGElement;
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  // viewBox is preserved on the clone — set a pleasant export size.
+  const vb = clone.viewBox.baseVal;
+  const aspect = vb.height / Math.max(vb.width, 1);
+  const exportW = 2400;
+  const exportH = Math.round(exportW * aspect);
+  clone.setAttribute('width', String(exportW));
+  clone.setAttribute('height', String(exportH));
+  return new XMLSerializer().serializeToString(clone);
+}
+
+function exportSVG(svg: SVGSVGElement | null, summary: ParsedSaveSummary) {
+  if (!svg) return;
+  const text = buildStandaloneSVG(svg);
+  download(text, `${safeFilename(summary)}.svg`, 'image/svg+xml');
+}
+
+async function exportPNG(svg: SVGSVGElement | null, summary: ParsedSaveSummary) {
+  if (!svg) return;
+  const text = buildStandaloneSVG(svg);
+  const blob = new Blob([text], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = (e) => reject(e);
+      img.src = url;
+    });
+    const vb = svg.viewBox.baseVal;
+    const aspect = vb.height / Math.max(vb.width, 1);
+    const scale = 2; // 2× for retina-ish quality
+    const baseW = 2400;
+    const canvas = document.createElement('canvas');
+    canvas.width = baseW * scale;
+    canvas.height = Math.round(baseW * aspect * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D context unavailable');
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((b) => {
+      if (b) download(b, `${safeFilename(summary)}.png`, 'image/png');
+    }, 'image/png');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

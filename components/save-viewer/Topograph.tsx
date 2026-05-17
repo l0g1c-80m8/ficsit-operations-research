@@ -16,6 +16,7 @@ import {
 import { cn, fmt } from '@/lib/utils';
 import type { ParsedSaveSummary, PlacedActor, SaveCategory } from '@/lib/save/types';
 import { CATEGORY_META } from '@/lib/save/categorize';
+import { actorOnFloor, detectFloors, type DetectedFloor } from '@/lib/save/floors';
 import { download } from '@/lib/solver/graph-export';
 
 const ORDERED_CATEGORIES: SaveCategory[] = (
@@ -62,7 +63,19 @@ export function Topograph({
   );
   const [visible, setVisible] = useState(initialVisible);
   const [fullscreen, setFullscreen] = useState(false);
+  // null = all floors visible; otherwise the DetectedFloor.idx to isolate.
+  const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  const floors = useMemo(() => detectFloors(summary.actors), [summary]);
+  // Drop the selection if the new save doesn't have that floor (e.g. switching
+  // history entries). Cheap to recompute on every render.
+  useEffect(() => {
+    if (selectedFloor != null && !floors.some((f) => f.idx === selectedFloor)) {
+      setSelectedFloor(null);
+    }
+  }, [floors, selectedFloor]);
+  const activeFloor = selectedFloor == null ? null : floors.find((f) => f.idx === selectedFloor) ?? null;
 
   // Compute world bounds once per summary. Add a small border so things on the
   // edge don't sit flush against the canvas frame.
@@ -73,6 +86,18 @@ export function Topograph({
     return { x: minX - pad, y: minY - pad, w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad };
   }, [summary]);
 
+  /** World Z bounds for the side elevation view (summary.bbox is X/Y only). */
+  const zBounds = useMemo(() => {
+    if (summary.actors.length === 0) return { zMin: 0, zMax: 1000 };
+    let zMin = Infinity, zMax = -Infinity;
+    for (const a of summary.actors) {
+      if (a.z < zMin) zMin = a.z;
+      if (a.z > zMax) zMax = a.z;
+    }
+    const pad = 400;
+    return { zMin: zMin - pad, zMax: zMax + pad };
+  }, [summary]);
+
   const [viewBox, setViewBox] = useState<ViewBox>(worldBox);
   // Reset view whenever a new save is loaded.
   useEffect(() => setViewBox(worldBox), [worldBox]);
@@ -81,15 +106,27 @@ export function Topograph({
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{ startVB: ViewBox; startPt: { x: number; y: number } } | null>(null);
 
-  const grouped = useMemo(() => {
+  // grouped: actors split by category, filtered to the active floor if any.
+  // filteredCounts: per-category totals used by LayerControls. When a floor
+  // is selected, these reflect what's actually on-screen; otherwise we fall
+  // through to summary.categoryCounts which already covers everything.
+  const { grouped, filteredCounts } = useMemo(() => {
     const map = new Map<SaveCategory, PlacedActor[]>();
+    const counts = activeFloor
+      ? ({} as Partial<Record<SaveCategory, number>>)
+      : null;
     for (const a of summary.actors) {
+      if (activeFloor && !actorOnFloor(a, activeFloor)) continue;
       const arr = map.get(a.category);
       if (arr) arr.push(a);
       else map.set(a.category, [a]);
+      if (counts) counts[a.category] = (counts[a.category] ?? 0) + 1;
     }
-    return map;
-  }, [summary]);
+    return {
+      grouped: map,
+      filteredCounts: counts as Record<SaveCategory, number> | null,
+    };
+  }, [summary, activeFloor]);
 
   const screenToWorld = useCallback((e: { clientX: number; clientY: number }) => {
     const svg = svgRef.current;
@@ -251,8 +288,16 @@ export function Topograph({
         }
       />
       <CardBody className={cn('space-y-3', fullscreen && 'flex min-h-0 min-w-0 flex-1 flex-col')}>
+        {floors.length > 0 && (
+          <FloorChips
+            floors={floors}
+            selected={selectedFloor}
+            onSelect={setSelectedFloor}
+          />
+        )}
         <LayerControls
-          counts={summary.categoryCounts}
+          counts={filteredCounts ?? summary.categoryCounts}
+          filtered={filteredCounts != null}
           visible={visible}
           onToggle={setLayerVisible}
           onAll={all}
@@ -299,6 +344,19 @@ export function Topograph({
           <ScaleBar viewBoxW={viewBox.w} />
           <CursorHUD cursor={cursor} />
         </div>
+
+        {floors.length >= 2 && (
+          <SideElevation
+            actors={summary.actors}
+            xMin={viewBox.x}
+            xMax={viewBox.x + viewBox.w}
+            zMin={zBounds.zMin}
+            zMax={zBounds.zMax}
+            floors={floors}
+            selected={selectedFloor}
+            onSelect={setSelectedFloor}
+          />
+        )}
 
         <div className="flex items-center justify-between text-[10px] text-ficsit-subtle">
           <span>North up · East right · scroll to zoom · drag to pan</span>
@@ -377,11 +435,13 @@ function clamp(v: number, lo: number, hi: number) {
 
 function LayerControls({
   counts,
+  filtered,
   visible,
   onToggle,
   onAll,
 }: {
   counts: Record<SaveCategory, number>;
+  filtered: boolean;
   visible: Record<SaveCategory, boolean>;
   onToggle: (c: SaveCategory, v: boolean) => void;
   onAll: (v: boolean) => void;
@@ -389,7 +449,9 @@ function LayerControls({
   return (
     <div className="rounded-md border border-ficsit-border bg-ficsit-panel2/40 p-2">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-ficsit-subtle">Layers</span>
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-ficsit-subtle">
+          Layers{filtered ? <span className="ml-1 text-ficsit-accent">(filtered to selected floor)</span> : null}
+        </span>
         <div className="flex gap-1">
           <Button variant="ghost" size="sm" onClick={() => onAll(true)}>
             <Eye className="h-3 w-3" /> All
@@ -429,6 +491,198 @@ function LayerControls({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function FloorChips({
+  floors,
+  selected,
+  onSelect,
+}: {
+  floors: DetectedFloor[];
+  selected: number | null;
+  onSelect: (idx: number | null) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 overflow-x-auto rounded-md border border-ficsit-border bg-ficsit-panel2/40 px-2 py-1.5">
+      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-widest text-ficsit-subtle">Floors</span>
+      <FloorChip
+        active={selected == null}
+        label="All"
+        onClick={() => onSelect(null)}
+        title={`Show every floor (${floors.length} detected)`}
+      />
+      {floors.map((f) => (
+        <FloorChip
+          key={f.idx}
+          active={selected === f.idx}
+          label={`F${f.idx}`}
+          sub={`${fmt(f.z / 100, 1)} m`}
+          onClick={() => onSelect(selected === f.idx ? null : f.idx)}
+          title={`Floor ${f.idx} · Z ≈ ${fmt(f.z / 100, 1)} m · ${fmt(f.count)} foundations`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function FloorChip({
+  active,
+  label,
+  sub,
+  onClick,
+  title,
+}: {
+  active: boolean;
+  label: string;
+  sub?: string;
+  onClick: () => void;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={cn(
+        'shrink-0 rounded-md border px-2 py-1 font-mono text-[11px] transition-colors',
+        active
+          ? 'border-ficsit-accent/60 bg-ficsit-accent/15 text-ficsit-accent ring-1 ring-ficsit-accent/40'
+          : 'border-ficsit-border bg-ficsit-panel text-ficsit-text hover:bg-ficsit-panel2',
+      )}
+    >
+      <span>{label}</span>
+      {sub && <span className="ml-1.5 text-ficsit-subtle">{sub}</span>}
+    </button>
+  );
+}
+
+/** X-Z elevation projection looking south: east is right, world up is up.
+ *  Mirrors the main map's X range so it auto-follows pan/zoom horizontally.
+ *  Vertical axis is auto-fit to actor Z range, NOT scaled to match X — it's
+ *  an elevation view, not an isometric one. Click a floor band to slice. */
+function SideElevation({
+  actors,
+  xMin,
+  xMax,
+  zMin,
+  zMax,
+  floors,
+  selected,
+  onSelect,
+}: {
+  actors: PlacedActor[];
+  xMin: number;
+  xMax: number;
+  zMin: number;
+  zMax: number;
+  floors: DetectedFloor[];
+  selected: number | null;
+  onSelect: (idx: number | null) => void;
+}) {
+  // SVG y grows downward, so we map world Z → -Z and let the viewBox flip.
+  const w = Math.max(1, xMax - xMin);
+  const h = Math.max(1, zMax - zMin);
+  // Dot radius in world units; chosen so a typical 4 m floor band reads cleanly.
+  const dotR = Math.max(80, w * 0.0008);
+
+  const handleClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const target = e.target as SVGElement;
+    const bandIdx = target.dataset?.floorIdx ? Number(target.dataset.floorIdx) : NaN;
+    if (Number.isFinite(bandIdx)) {
+      onSelect(selected === bandIdx ? null : bandIdx);
+    } else {
+      onSelect(null);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-ficsit-border bg-ficsit-bg">
+      <div className="flex items-center justify-between border-b border-ficsit-border px-2 py-1 text-[10px] text-ficsit-subtle">
+        <span>
+          <strong className="text-ficsit-text">Elevation</strong> · looking south (X-Z) · click a floor band to slice
+        </span>
+        <span>
+          {fmt((zMax - zMin) / 100, 1)} m vertical · {fmt((xMax - xMin) / 100, 0)} m of current view
+        </span>
+      </div>
+      <svg
+        viewBox={`${xMin} ${-zMax} ${w} ${h}`}
+        width="100%"
+        height={160}
+        preserveAspectRatio="none"
+        xmlns="http://www.w3.org/2000/svg"
+        onClick={handleClick}
+        style={{ cursor: 'pointer', display: 'block' }}
+      >
+        <rect x={xMin} y={-zMax} width={w} height={h} fill="#0d1117" />
+
+        {/* Floor bands. Inactive bands paint a subtle stripe; active band gets
+            a colored fill + accent outline. Each band has a data-floor-idx so
+            clicks resolve cleanly without coordinate math. */}
+        {floors.map((f) => {
+          const active = selected === f.idx;
+          const bandH = f.zMax - f.zMin;
+          return (
+            <g key={f.idx}>
+              <rect
+                data-floor-idx={f.idx}
+                x={xMin}
+                y={-f.zMax}
+                width={w}
+                height={bandH}
+                fill={active ? '#facc1522' : '#1f2937'}
+                stroke={active ? '#facc15' : 'transparent'}
+                strokeWidth={Math.max(20, w * 0.0004)}
+              />
+              <line
+                x1={xMin}
+                x2={xMin + w}
+                y1={-f.z}
+                y2={-f.z}
+                stroke={active ? '#facc15' : '#475569'}
+                strokeWidth={Math.max(10, w * 0.0002)}
+                strokeDasharray={active ? undefined : `${w * 0.004} ${w * 0.004}`}
+              />
+              <text
+                x={xMin + w * 0.005}
+                y={-f.z - bandH * 0.5}
+                fill={active ? '#facc15' : '#94a3b8'}
+                fontSize={h * 0.08}
+                fontFamily="monospace"
+                style={{ pointerEvents: 'none' }}
+              >
+                F{f.idx} · {fmt(f.z / 100, 1)} m
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Actor dots, painted on top of the bands. We collapse every category
+            to a dot here — the side view is for vertical sense-making, not
+            shape identification (the top view handles that). */}
+        {ORDERED_CATEGORIES.map((cat) => {
+          const meta = CATEGORY_META[cat];
+          const matches = actors.filter(
+            (a) => a.category === cat && a.x >= xMin && a.x <= xMax,
+          );
+          if (matches.length === 0) return null;
+          const r = cat === 'foundation' ? dotR * 0.6 : dotR;
+          const d = matches
+            .map((a) => `M${a.x},${-a.z}m -${r},0 a ${r},${r} 0 1,0 ${2 * r},0 a ${r},${r} 0 1,0 -${2 * r},0`)
+            .join(' ');
+          return (
+            <path
+              key={cat}
+              d={d}
+              fill={meta.color}
+              opacity={cat === 'foundation' ? 0.35 : meta.opacity * 0.9}
+              style={{ pointerEvents: 'none' }}
+            />
+          );
+        })}
+      </svg>
     </div>
   );
 }

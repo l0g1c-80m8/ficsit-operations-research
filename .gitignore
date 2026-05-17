@@ -9,3 +9,8 @@ dist
 .vscode/*.log
 .idea
 tsconfig.tsbuildinfo
+
+# Google Drive OAuth (scripts/download-drive-revisions.py)
+credentials.json
+token.json
+sample/*.sav

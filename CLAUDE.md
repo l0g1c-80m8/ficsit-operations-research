@@ -74,6 +74,23 @@ already handle basePath. Icons and `/data/*.json` are fetched via `assetPath`.
 Prunes auto-bust because `prune-data.mjs` writes a new buildId. Don't fetch
 `satisfactory.json` directly without the version query string.
 
+### Save Topograph background
+
+Three modes selectable via the Background chip strip:
+
+- **Grid** (default) — 100 m thin lines + 1 km bold lines drawn as explicit
+  `<line>` elements. Stroke widths are tied to the *current* viewBox so the
+  grid stays legible at any zoom; a `<pattern>` with world-unit strokes would
+  collapse to fractional pixels at default zoom.
+- **Terrain** — procedural biome blobs (soft colored ellipses, blurred via a
+  Gaussian filter, clipped to the Satisfactory play-area bounds) drawn
+  underneath the grid. No external assets, no copyright surface. The biome
+  positions are loose impressions, not survey-accurate.
+- **Plain** — original solid-dark canvas.
+
+Bounds, biome geometry, and grid stroke scaling all live at the top of
+`components/save-viewer/Topograph.tsx`.
+
 ### localStorage keys (don't collide)
 
 - Calculator inputs + history: see `lib/calculator/`

@@ -135,10 +135,23 @@ curl -L -o /tmp/sat-data.json \
 
 ## Testing
 
-No unit-test framework yet. Two smoke scripts live in `scripts/`:
+The real assertions live in `vitest` suites colocated next to the modules:
 
 ```bash
-node scripts/test-solver.mjs   # exercises the LP across canned targets
+npm test         # vitest run — single pass, CI-style
+npm run test:watch
+```
+
+Current coverage: `lib/solver/factory-solver.test.ts` (auto-supply, overclock
+tiers, power-balance, sink-points objective) and `lib/save/verify.test.ts`
+(flow-classification semantics). The LP tests pin alternates **off** unless
+they specifically exercise the alt path — alternates change machine counts so
+defaults aren't predictable without locking them down.
+
+Two legacy smoke scripts live in `scripts/`:
+
+```bash
+node scripts/test-solver.mjs   # ad-hoc LP probes, not assertion-based
 node scripts/test-graph.mjs    # exercises dagre layout
 ```
 

@@ -326,6 +326,7 @@ The script prints an ANSI-colored, ASCII-tabled summary:
 | `--auto-raw` | Force auto-supply ON even when `--supply` is given (advanced) |
 | `--shards N` | Power Shard budget for overclocking; >0 lets the solver run recipes at 150/200/250 % clock |
 | `--with-power` | Plan power production end-to-end: generators + fuel chain enter the LP |
+| `--max-sink` | Optimize for AWESOME-Sink ticket throughput instead of weighted target output |
 | `--top N` | Truncate recipe-line dump to top N by machine count |
 | `--list KIND` | List `recipes` (default), `items`, or `buildings` |
 | `-i, --interactive` | Prompt-driven mode |

@@ -58,6 +58,12 @@ export interface SolverOptions {
    *  Fuel + byproduct flows enter the regular item balance, so the chain
    *  back to raw resources is solved end-to-end. */
   includePowerProduction?: boolean;
+  /** Optimization objective in max mode (no fixed-rate target):
+   *  - `output` (default) — maximize weighted output of user-listed targets.
+   *  - `sink_points` — maximize AWESOME Sink ticket value per minute. Every
+   *    sinkable item with no user-given rate floor becomes a candidate sink;
+   *    its objective weight is its `sinkPoints` (×0 for liquids/gases). */
+  objective?: 'output' | 'sink_points';
 }
 
 export interface ClockTierUsage {
@@ -153,6 +159,7 @@ export function solveFactory(
     autoSupplyRawResources = true,
     shardBudget,
     includePowerProduction = false,
+    objective = 'output',
   } = options;
   const ocEnabled = (shardBudget ?? 0) > 0;
   const tiers = ocEnabled ? OC_TIERS : [OC_TIERS[0]];
@@ -281,12 +288,39 @@ export function solveFactory(
     });
   }
 
-  // Production (sink) variables: only for targets, removes from the item balance.
-  for (const t of targets) {
+  // Effective targets: when objective=sink_points we augment the user's list
+  // with one sink entry per sinkable item that wasn't already supplied or
+  // listed. Each gets `weight = sinkPoints`, so the LP picks the most
+  // ticket-dense product mix from the available raws.
+  const effectiveTargets: TargetOutput[] = [...targets];
+  if (objective === 'sink_points') {
+    for (const [cls, item] of Object.entries(data.items)) {
+      if (item.liquid || (item.sinkPoints ?? 0) <= 0) continue;
+      if (targetSet.has(cls)) continue;
+      effectiveTargets.push({ item: cls, weight: item.sinkPoints });
+      // Backfill balance rows the items-loop already ran past, otherwise the
+      // sink variable would be unconstrained and produce free points.
+      if (!items.has(cls)) {
+        items.add(cls);
+        constraints[`bal_${cls}`] = { min: -(supplyByItem.get(cls) ?? 0) };
+      }
+    }
+  }
+
+  // Production (sink) variables: only for effective targets; remove from the
+  // item balance row, then contribute to obj.
+  for (const t of effectiveTargets) {
     const key = `produced_${t.item}`;
+    let weight = t.weight ?? 1;
+    if (objective === 'sink_points') {
+      const it = data.items[t.item];
+      // Liquids/gases can't be sunk: zero them out so the LP doesn't pick them.
+      const pts = it?.liquid ? 0 : (it?.sinkPoints ?? 0);
+      weight = pts * (t.weight ?? 1);
+    }
     variables[key] = {
       [`bal_${t.item}`]: -1,
-      obj: hasFixedTarget ? 0 : (t.weight ?? 1),
+      obj: hasFixedTarget ? 0 : weight,
     };
     if (t.minRatePerMin && t.minRatePerMin > 0) {
       constraints[`min_${t.item}`] = { min: t.minRatePerMin };
@@ -385,10 +419,13 @@ export function solveFactory(
     });
   }
 
-  const outputs = targets.map((t) => ({
-    item: t.item,
-    ratePerMin: result[`produced_${t.item}`] ?? 0,
-  }));
+  // For sink_points mode, the solver may produce items the user never
+  // explicitly listed (every sinkable item is an implicit candidate). Surface
+  // every produced sink so the Summary tab shows the actual product mix.
+  const outputs = effectiveTargets
+    .map((t) => ({ item: t.item, ratePerMin: result[`produced_${t.item}`] ?? 0 }))
+    .filter((o) => o.ratePerMin > EPS || targets.some((t) => t.item === o.item))
+    .sort((a, b) => b.ratePerMin - a.ratePerMin);
 
   // Tally net consumption per raw resource (or per item the user explicitly
   // supplied). Net = recipe inputs minus recipe byproducts of the same item.

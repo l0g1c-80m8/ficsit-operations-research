@@ -30,6 +30,11 @@ export interface Project {
   tasks: Task[];
   createdAt: number;
   updatedAt: number;
+  /** Optional pointer to a saved calculator plan
+   *  (`CalcSaveEntry.id` from `ficsit.calculator.history.v1`). The Targets
+   *  tab surfaces the plan's machine + power summary inline and offers a
+   *  deep-link to load it in the calculator. */
+  linkedPlanId?: string;
 }
 
 export interface PlannerState {
@@ -38,7 +43,9 @@ export interface PlannerState {
   activity: ActivityEvent[];
 }
 
-export const PLANNER_KEY = 'ficsit.planner.v1';
+// v2: Project.linkedPlanId added (optional; old v1 entries load fine, but
+// bumping keeps the on-disk shape advertised vs the current TS type).
+export const PLANNER_KEY = 'ficsit.planner.v2';
 
 export const DEFAULT_STATE: PlannerState = {
   projects: [

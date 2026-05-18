@@ -7,7 +7,7 @@ import { useGameData } from '@/lib/data/use-data';
 import { fmt } from '@/lib/utils';
 import type { ParsedSaveSummary } from '@/lib/save/types';
 import { buildableToDescriptor, categorize } from '@/lib/save/categorize';
-import { Boxes, Coins, Factory, Hash, Layers, Zap } from 'lucide-react';
+import { Activity, Boxes, Coins, Factory, Hash, Layers, Zap } from 'lucide-react';
 
 /** Compact, data-driven analytics computed from the actor histogram + game data:
  *
@@ -68,6 +68,37 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
     }
     manifest.sort((a, b) => b.count - a.count);
 
+    // Recipe utilization: walk the actor list (the histogram has no recipe
+    // info) and count actors per assigned recipe. Tally active vs idle counts
+    // and an "active-only" power draw alongside the original 100%-clock
+    // upper-bound estimate.
+    const recipeCounts = new Map<string, number>();
+    let activeMachines = 0;
+    let totalProductionMachines = 0;
+    let activePowerKW = 0;
+    for (const a of summary.actors) {
+      if (a.category !== 'production' && a.category !== 'extractor') continue;
+      totalProductionMachines++;
+      if (a.currentRecipe) {
+        activeMachines++;
+        recipeCounts.set(a.currentRecipe, (recipeCounts.get(a.currentRecipe) ?? 0) + 1);
+        const b = data.buildings[buildableToDescriptor(a.className)];
+        activePowerKW += b?.metadata?.powerConsumption ?? 0;
+      }
+    }
+    const recipeUsage = [...recipeCounts.entries()]
+      .map(([className, machines]) => {
+        const recipe = data.recipes.find((r) => r.className === className);
+        return {
+          className,
+          machines,
+          name: recipe?.name ?? className,
+          product: recipe?.products[0]?.item,
+          building: recipe?.producedIn[0],
+        };
+      })
+      .sort((a, b) => b.machines - a.machines);
+
     const foundations = summary.categoryCounts.foundation ?? 0;
     // Standard 8m × 8m tile = 64 m². Wall/roof actors mixed in here too so this
     // is an upper-bound estimate of total floor footprint.
@@ -80,15 +111,34 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
       productionTotal,
       manifest: manifest.slice(0, 24),
       totalKnownBuildings: [...buildingByClass.values()].reduce((a, b) => a + b, 0),
+      activeMachines,
+      totalProductionMachines,
+      activePowerKW,
+      recipeUsage: recipeUsage.slice(0, 24),
+      recipesIdentified: recipeUsage.length,
     };
   }, [summary, data]);
 
   if (!data) return null;
   if (!computed) return null;
 
+  const activePct = computed.totalProductionMachines > 0
+    ? Math.round((computed.activeMachines / computed.totalProductionMachines) * 100)
+    : 0;
   const stats = [
     { icon: Factory, label: 'Production buildings', value: fmt(computed.productionTotal) },
-    { icon: Zap, label: 'Estimated power draw', value: `${fmt(computed.powerKW)} MW`, sub: '@ 100% clock' },
+    {
+      icon: Activity,
+      label: 'Active machines',
+      value: `${fmt(computed.activeMachines)} / ${fmt(computed.totalProductionMachines)}`,
+      sub: `${activePct}% with a recipe assigned`,
+    },
+    {
+      icon: Zap,
+      label: 'Estimated power draw',
+      value: `${fmt(computed.activePowerKW)} MW`,
+      sub: `active · ${fmt(computed.powerKW)} MW @ full clock`,
+    },
     { icon: Layers, label: 'Foundations', value: fmt(computed.foundations), sub: `≈ ${fmt(computed.estFloorAreaM2)} m²` },
     { icon: Boxes, label: 'Logistics network', value: fmt((summary.categoryCounts.conveyor ?? 0) + (summary.categoryCounts.pipeline ?? 0) + (summary.categoryCounts.power_grid ?? 0)), sub: 'conveyors · pipes · power' },
     { icon: Hash, label: 'Total placed actors', value: fmt(summary.actorCount) },
@@ -99,12 +149,46 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
     <div className="space-y-4">
       <Card>
         <CardHeader title="Factory snapshot" subtitle="Derived from the save's actor histogram cross-referenced with the game data." />
-        <CardBody className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+        <CardBody className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-7">
           {stats.map((s) => (
             <StatTile key={s.label} icon={s.icon} label={s.label} value={s.value} sub={s.sub} tone="accent" compact />
           ))}
         </CardBody>
       </Card>
+
+      {computed.recipeUsage.length > 0 && (
+        <Card>
+          <CardHeader
+            title="Recipe utilization"
+            subtitle={`${fmt(computed.recipesIdentified)} distinct recipes assigned across ${fmt(computed.activeMachines)} machines.`}
+          />
+          <CardBody>
+            <ul className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {computed.recipeUsage.map((r) => (
+                <li
+                  key={r.className}
+                  className="flex items-center gap-3 rounded-md border border-ficsit-border bg-ficsit-panel2 px-3 py-2"
+                >
+                  {r.product ? (
+                    <ItemIcon className={r.product} size={28} cls="rounded-md p-0.5 bg-ficsit-panel" />
+                  ) : (
+                    <div className="h-7 w-7 shrink-0 rounded-md border border-dashed border-ficsit-border bg-ficsit-panel2/40" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm">{r.name}</div>
+                    {r.building && (
+                      <div className="text-[10px] text-ficsit-subtle">
+                        {data.buildings[r.building]?.name ?? r.building}
+                      </div>
+                    )}
+                  </div>
+                  <div className="font-mono text-lg text-ficsit-accent">{fmt(r.machines)}</div>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
 
       {computed.manifest.length > 0 && (
         <Card>

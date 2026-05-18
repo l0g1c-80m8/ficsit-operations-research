@@ -45,6 +45,10 @@ export interface PlacedActor {
   /** uniform horizontal scale (max of |scale.x|, |scale.y|); foundations etc. may scale */
   scale: number;
   category: SaveCategory;
+  /** For production machines that have a recipe assigned in-game, this is
+   *  the simplified recipe class name (e.g. `Recipe_IronPlate_C`). Undefined
+   *  for machines with no recipe set or for non-production actors. */
+  currentRecipe?: string;
 }
 
 export interface ParsedSaveSummary {

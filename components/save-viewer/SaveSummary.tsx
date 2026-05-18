@@ -7,6 +7,7 @@ import { cn, fmt } from '@/lib/utils';
 import type { ParsedSaveSummary } from '@/lib/save/types';
 import { Topograph } from './Topograph';
 import { SaveStats } from './SaveStats';
+import { SaveVerify } from './SaveVerify';
 import { Crosshair, X } from 'lucide-react';
 
 export function SaveSummary({ summary }: { summary: ParsedSaveSummary }) {
@@ -41,6 +42,8 @@ export function SaveSummary({ summary }: { summary: ParsedSaveSummary }) {
       </div>
 
       <SaveStats summary={summary} />
+
+      <SaveVerify summary={summary} />
 
       <Card>
         <CardHeader

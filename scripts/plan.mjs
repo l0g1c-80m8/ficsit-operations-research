@@ -117,6 +117,7 @@ const opts = {
   autoRaw: false,
   shards: 0,
   withPower: false,
+  objective: 'output',
   topRecipes: Infinity,
   help: false,
 };
@@ -134,6 +135,8 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--auto-raw' || a === '--unlimited-raws') opts.autoRaw = true;
   else if (a === '--shards' || a === '--power-shards') opts.shards = Math.max(0, Math.floor(Number(args[++i]) || 0));
   else if (a === '--with-power' || a === '--power' || a === '--plan-power') opts.withPower = true;
+  else if (a === '--objective' || a === '--obj') opts.objective = (args[++i] === 'sink_points' || args[i] === 'sink-points') ? 'sink_points' : 'output';
+  else if (a === '--max-sink' || a === '--sink-points') opts.objective = 'sink_points';
   else if (a === '--top') opts.topRecipes = Number(args[++i]);
   else if (a === '--supply' || a === '-s') {
     const value = args[++i] ?? '';
@@ -295,6 +298,9 @@ Flags:
                           150/200/250% clock (1/2/3 shards per machine) wherever it cuts the machine
                           count the most. Power scales by clock^1.32.
       --with-power        Plan power production end-to-end: generators + fuel chain enter the LP.
+      --max-sink          Optimize for AWESOME-Sink point throughput (every sinkable item is a
+                          candidate sink, weighted by its sinkPoints). Mutually exclusive with
+                          fixed-rate min-machines mode.
   -i, --interactive       Prompt-driven mode.
       --list KIND         List "recipes" (default), "items", or "buildings".
   -h, --help              Show this help.
@@ -431,10 +437,31 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
     });
   }
 
-  for (const t of targets) {
+  // Effective targets: when objective=sink_points we augment with every
+  // sinkable item not already listed, weighted by its sinkPoints.
+  const targetItemSet = new Set(targets.map((t) => t.item));
+  const effectiveTargets = [...targets];
+  if (opts.objective === 'sink_points') {
+    for (const [cls, item] of Object.entries(data.items)) {
+      if (item.liquid || !item.sinkPoints || item.sinkPoints <= 0) continue;
+      if (targetItemSet.has(cls)) continue;
+      effectiveTargets.push({ item: cls, weight: item.sinkPoints });
+      items.add(cls);
+      // Backfill the constraint row we already wrote for the items set.
+      if (!constraints[`bal_${cls}`]) constraints[`bal_${cls}`] = { min: -(supplyByItem.get(cls) ?? 0) };
+    }
+  }
+
+  for (const t of effectiveTargets) {
+    let weight = t.weight ?? 1;
+    if (opts.objective === 'sink_points') {
+      const it = data.items[t.item];
+      const pts = it?.liquid ? 0 : (it?.sinkPoints ?? 0);
+      weight = pts * (t.weight ?? 1);
+    }
     variables[`produced_${t.item}`] = {
       [`bal_${t.item}`]: -1,
-      obj: hasFixedTarget ? 0 : (t.weight ?? 1),
+      obj: hasFixedTarget ? 0 : weight,
     };
     if (t.minRatePerMin && t.minRatePerMin > 0) {
       constraints[`min_${t.item}`] = { min: t.minRatePerMin };
@@ -526,7 +553,10 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
     });
   }
 
-  const outputs = targets.map((t) => ({ item: t.item, ratePerMin: result[`produced_${t.item}`] ?? 0 }));
+  const outputs = effectiveTargets
+    .map((t) => ({ item: t.item, ratePerMin: result[`produced_${t.item}`] ?? 0 }))
+    .filter((o) => o.ratePerMin > EPS || targets.some((t) => t.item === o.item))
+    .sort((a, b) => b.ratePerMin - a.ratePerMin);
   // Tally net raw consumption per supply item. Show user-specified caps even at 0,
   // and any auto-supplied raw actually used.
   const userItems = new Set(supplies.map((s) => s.item));

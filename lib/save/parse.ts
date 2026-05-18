@@ -74,6 +74,13 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
           if (actors.length < MAX_ACTORS_FOR_VIZ) {
             const yaw = quaternionToYawDeg(r);
             const scale = Math.max(Math.abs(s?.x ?? 1), Math.abs(s?.y ?? 1)) || 1;
+            // Production / extractor / generator machines carry `mCurrentRecipe`
+            // as an ObjectProperty whose `value.pathName` looks like
+            // `/Game/FactoryGame/Recipes/Standard/Recipe_IronPlate.Recipe_IronPlate_C`.
+            // Read it only for categories where it's meaningful — saves the
+            // properties walk on the tens of thousands of foundation/belt actors.
+            const wantsRecipe = category === 'production' || category === 'extractor' || category === 'generator';
+            const currentRecipe = wantsRecipe ? extractCurrentRecipe(obj) : undefined;
             actors.push({
               className,
               x: t.x,
@@ -82,6 +89,7 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
               yaw,
               scale,
               category,
+              currentRecipe,
             });
           }
           if (t.x < minX) minX = t.x;
@@ -110,6 +118,19 @@ function simplifyClass(typePath: string): string {
   // typePath looks like "/Game/FactoryGame/Buildable/Foo/Bar/Build_Foo.Build_Foo_C"
   const tail = typePath.split('/').pop() ?? typePath;
   return tail.split('.').pop() ?? tail;
+}
+
+/** Pull the simplified recipe class out of a production-machine actor's
+ *  `mCurrentRecipe` ObjectProperty. The parser exposes properties as a map of
+ *  `{ name → property }`; an ObjectProperty's payload is `{ value: { pathName,
+ *  levelName } }`. Empty path = no recipe assigned. */
+function extractCurrentRecipe(obj: unknown): string | undefined {
+  const props = (obj as { properties?: Record<string, unknown> }).properties;
+  if (!props) return undefined;
+  const raw = props.mCurrentRecipe as { value?: { pathName?: string } } | undefined;
+  const pathName = raw?.value?.pathName;
+  if (!pathName) return undefined;
+  return simplifyClass(pathName);
 }
 
 export { MAX_ACTORS_FOR_VIZ };

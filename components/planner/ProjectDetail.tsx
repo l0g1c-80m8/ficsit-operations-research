@@ -23,6 +23,10 @@ import {
   Zap,
 } from 'lucide-react';
 import { useGameData } from '@/lib/data/use-data';
+import { useLocalStorage } from '@/lib/storage/use-local-storage';
+import { CALC_HISTORY_KEY, type CalcSaveEntry } from '@/lib/calculator/types';
+import Link from 'next/link';
+import { Link2, ExternalLink, X } from 'lucide-react';
 
 type Tab = 'tasks' | 'targets' | 'activity';
 
@@ -365,6 +369,8 @@ function TargetsTab({ project, onEdit }: { project: Project; onEdit: (patch: Par
         </p>
       </div>
 
+      <LinkedPlanCard project={project} onEdit={onEdit} />
+
       <div className="rounded-lg border border-ficsit-border bg-ficsit-panel p-4">
         <div className="text-xs uppercase tracking-widest text-ficsit-subtle">Lifecycle</div>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -424,6 +430,129 @@ function ActivityTab({ activity }: { activity: ActivityEvent[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Links a saved calculator plan to this project; surfaces a compact
+ *  summary (target item + rate + machines + power) inline and offers a deep
+ *  link to load the plan in the calculator (`/calculator#load=<planId>`). */
+function LinkedPlanCard({
+  project,
+  onEdit,
+}: {
+  project: Project;
+  onEdit: (patch: Partial<Project>) => void;
+}) {
+  // Read-only mirror of the calculator's saved-plan history. We never mutate
+  // it from here — clearing the link only nulls Project.linkedPlanId.
+  const [history] = useLocalStorage<CalcSaveEntry[]>(CALC_HISTORY_KEY, []);
+  const linked = history.find((e) => e.id === project.linkedPlanId);
+  const { data } = useGameData();
+
+  return (
+    <div className="rounded-lg border border-ficsit-border bg-ficsit-panel p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-ficsit-subtle">
+          <Link2 className="h-3.5 w-3.5" /> Linked Calculator Plan
+        </div>
+        {project.linkedPlanId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onEdit({ linkedPlanId: undefined })}
+            title="Unlink (doesn't delete the saved plan)"
+          >
+            <X className="h-3.5 w-3.5" /> Unlink
+          </Button>
+        )}
+      </div>
+
+      <div className="mt-3 space-y-3">
+        <Select
+          value={project.linkedPlanId ?? ''}
+          onChange={(e) => onEdit({ linkedPlanId: e.target.value || undefined })}
+        >
+          <option value="">— no plan linked —</option>
+          {history.map((e) => {
+            const it = e.summary?.outputs?.[0]?.item;
+            const name = it ? data?.items[it]?.name ?? it : '—';
+            return (
+              <option key={e.id} value={e.id}>
+                {e.name} · {name}
+              </option>
+            );
+          })}
+        </Select>
+
+        {project.linkedPlanId && !linked && (
+          <p className="text-xs text-ficsit-bad">
+            Linked plan was deleted from the calculator history. Unlink or re-link.
+          </p>
+        )}
+
+        {linked && linked.summary && (
+          <LinkedPlanSummary entry={linked} />
+        )}
+
+        {linked && !linked.summary && (
+          <p className="text-xs text-ficsit-subtle">
+            This plan was saved before the solver ran (no summary on disk). Open it in the calculator to compute one.
+          </p>
+        )}
+
+        {history.length === 0 && (
+          <p className="text-xs text-ficsit-subtle">
+            No saved calculator plans yet — head to the Calculator, run a plan, and click <strong>Save plan</strong> to make one available here.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LinkedPlanSummary({ entry }: { entry: CalcSaveEntry }) {
+  const { data } = useGameData();
+  const summary = entry.summary!;
+  return (
+    <div className="space-y-2 rounded-md border border-ficsit-border bg-ficsit-panel2 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {summary.outputs.slice(0, 3).map((o) => (
+            <span
+              key={o.item}
+              className="inline-flex items-center gap-1 rounded-md border border-ficsit-good/30 bg-ficsit-good/10 px-2 py-0.5 text-xs"
+            >
+              <ItemIcon className={o.item} size={14} />
+              <span className="font-mono">{fmt(o.ratePerMin)}/m</span>
+              <span className="text-ficsit-subtle">{data?.items[o.item]?.name ?? o.item}</span>
+            </span>
+          ))}
+        </div>
+        <Link
+          href={`/calculator#load=${encodeURIComponent(entry.id)}`}
+          className="inline-flex items-center gap-1 rounded-md border border-ficsit-border bg-ficsit-panel px-2 py-1 text-[11px] uppercase tracking-wide text-ficsit-subtle hover:bg-ficsit-panel2 hover:text-ficsit-text"
+        >
+          <ExternalLink className="h-3 w-3" /> Open in calculator
+        </Link>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-[11px]">
+        <Metric label="Machines" value={fmt(summary.totalMachines, 1)} />
+        <Metric label="Power" value={`${fmt(summary.totalPowerKW)} MW`} />
+        <Metric label="Recipe lines" value={fmt(summary.recipeLines)} />
+      </div>
+      <p className="text-[10px] text-ficsit-subtle">
+        Saved {new Date(entry.savedAt).toLocaleString()} · {summary.status}
+      </p>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-ficsit-border bg-ficsit-panel px-2 py-1">
+      <div className="text-[9px] uppercase tracking-wide text-ficsit-subtle">{label}</div>
+      <div className="font-mono text-sm text-ficsit-accent">{value}</div>
+    </div>
   );
 }
 

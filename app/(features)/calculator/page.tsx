@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/shell/AppShell';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -77,6 +77,7 @@ export default function CalculatorPage() {
         autoSupplyRawResources: effectiveAutoSupply(eff),
         shardBudget: eff.shardBudget,
         includePowerProduction: eff.includePowerProduction,
+        objective: eff.objective,
       },
     );
     setPlan(result);
@@ -120,6 +121,23 @@ export default function CalculatorPage() {
     // Re-solve so the right pane visibly updates with the loaded plan.
     run(cloned);
   }
+
+  // Deep-link entry: `/calculator#load=<planId>` (planner clicks this to
+  // open the linked plan). Runs once per mount when both the history and
+  // game data are ready. Clears the hash after consuming it so reloads
+  // don't keep re-loading the same plan over the user's current inputs.
+  useEffect(() => {
+    if (!data || history.length === 0) return;
+    if (typeof window === 'undefined') return;
+    const match = window.location.hash.match(/^#load=(.+)$/);
+    if (!match) return;
+    const id = decodeURIComponent(match[1]);
+    const entry = history.find((e) => e.id === id);
+    if (entry) loadEntry(entry);
+    // Clear hash without scrolling.
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, history.length]);
 
   function deleteEntry(id: string) {
     setHistory((h) => h.filter((e) => e.id !== id));
@@ -274,6 +292,41 @@ export default function CalculatorPage() {
           <Card>
             <CardHeader title="Options" />
             <CardBody className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-ficsit-subtle">Objective</span>
+                <div className="inline-flex rounded-md border border-ficsit-border bg-ficsit-panel2 p-0.5 text-xs">
+                  <button
+                    type="button"
+                    className={cn(
+                      'rounded px-2 py-1 transition-colors',
+                      (inputs.objective ?? 'output') === 'output'
+                        ? 'bg-ficsit-accent text-ficsit-bg'
+                        : 'text-ficsit-subtle hover:text-ficsit-text',
+                    )}
+                    onClick={() => setInputs((i) => ({ ...i, objective: 'output' }))}
+                  >
+                    Max output
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      'rounded px-2 py-1 transition-colors',
+                      inputs.objective === 'sink_points'
+                        ? 'bg-ficsit-accent text-ficsit-bg'
+                        : 'text-ficsit-subtle hover:text-ficsit-text',
+                    )}
+                    onClick={() => setInputs((i) => ({ ...i, objective: 'sink_points' }))}
+                    title="Maximize AWESOME Sink tickets per minute across all sinkable items"
+                  >
+                    Max sink points
+                  </button>
+                </div>
+                <span className="text-[10px] text-ficsit-subtle">
+                  {inputs.objective === 'sink_points'
+                    ? 'every sinkable item is a candidate — solver picks the most ticket-dense mix'
+                    : 'solver maximizes the targets you list (default)'}
+                </span>
+              </div>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"

@@ -27,6 +27,10 @@ export interface CalcInputs {
    *  candidate machines, fuel + byproduct flows enter the regular item
    *  balance, and the constraint is that produced power ≥ consumed power. */
   includePowerProduction?: boolean;
+  /** Optimization objective in max mode. 'output' (default) maximizes
+   *  weighted target output; 'sink_points' maximizes AWESOME-Sink ticket
+   *  value across every sinkable item. */
+  objective?: 'output' | 'sink_points';
 }
 
 /** Effective auto-supply for the current inputs. Pure function of the two

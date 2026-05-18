@@ -24,6 +24,7 @@ import {
   type CalcRow,
   type CalcSaveEntry,
 } from '@/lib/calculator/types';
+import { requiredTier, tierLabel, type TierRequirement } from '@/lib/utils/tiers';
 import { CalcHistory } from '@/components/calculator/CalcHistory';
 import { PlanGraph } from '@/components/calculator/PlanGraph';
 import { Economics } from '@/components/calculator/Economics';
@@ -651,12 +652,16 @@ function SummaryTab({ plan }: { plan: FactoryPlan }) {
       <Card>
         <CardHeader title="Outputs" />
         <CardBody className="flex flex-wrap gap-2">
-          {plan.outputs.map((o) => (
-            <div key={o.item} className="flex items-center gap-1 rounded-md border border-ficsit-good/30 bg-ficsit-good/10 px-2 py-1 text-xs">
-              <span className="font-mono text-ficsit-good">{fmt(o.ratePerMin)}/m</span>
-              <ItemBadge item={o.item} />
-            </div>
-          ))}
+          {plan.outputs.map((o) => {
+            const tier = data ? requiredTier(o.item, o.ratePerMin, data) : null;
+            return (
+              <div key={o.item} className="flex items-center gap-1.5 rounded-md border border-ficsit-good/30 bg-ficsit-good/10 px-2 py-1 text-xs">
+                <span className="font-mono text-ficsit-good">{fmt(o.ratePerMin)}/m</span>
+                <ItemBadge item={o.item} />
+                {tier && <TierBadge tier={tier} />}
+              </div>
+            );
+          })}
         </CardBody>
       </Card>
 
@@ -704,12 +709,16 @@ function SummaryTab({ plan }: { plan: FactoryPlan }) {
       <Card>
         <CardHeader title="Consumed Inputs" />
         <CardBody className="flex flex-wrap gap-2">
-          {plan.consumedInputs.map((o) => (
-            <div key={o.item} className="flex items-center gap-1 rounded-md border border-ficsit-border bg-ficsit-panel2 px-2 py-1 text-xs">
-              <span className="font-mono">{fmt(o.ratePerMin)}/m</span>
-              <ItemBadge item={o.item} />
-            </div>
-          ))}
+          {plan.consumedInputs.map((o) => {
+            const tier = data ? requiredTier(o.item, o.ratePerMin, data) : null;
+            return (
+              <div key={o.item} className="flex items-center gap-1.5 rounded-md border border-ficsit-border bg-ficsit-panel2 px-2 py-1 text-xs">
+                <span className="font-mono">{fmt(o.ratePerMin)}/m</span>
+                <ItemBadge item={o.item} />
+                {tier && <TierBadge tier={tier} />}
+              </div>
+            );
+          })}
         </CardBody>
       </Card>
 
@@ -738,6 +747,26 @@ function SummaryTab({ plan }: { plan: FactoryPlan }) {
 function RecipesTab({ plan }: { plan: FactoryPlan }) {
   const { data } = useGameData();
   const hasOC = plan.lines.some((l) => l.clockTiers.length > 1 || (l.clockTiers[0]?.clock ?? 1) !== 1);
+  // Pre-compute the highest-tier badge for each line so the table is just
+  // markup. The badge is the *tightest* belt/pipe demand on the line — the
+  // user can derive in/out specifically from the flows by clicking through
+  // to the recipe drawer if they need.
+  const lineTier = (l: FactoryPlan['lines'][number]): TierRequirement | null => {
+    if (!data) return null;
+    let worst: TierRequirement | null = null;
+    for (const f of [...l.outputs, ...l.inputs]) {
+      const t = requiredTier(f.item, f.ratePerMin, data);
+      if (!t) continue;
+      if (
+        !worst ||
+        t.parallel > worst.parallel ||
+        (t.parallel === worst.parallel && t.mark > worst.mark)
+      ) {
+        worst = t;
+      }
+    }
+    return worst;
+  };
   return (
     <Card>
       <CardHeader title="Recipe Lines" subtitle={hasOC ? 'Clock per line is solver-chosen within your shard budget; machine counts reflect the chosen clocks.' : 'Machines at 100% clock. Overclock to round up.'} />
@@ -750,6 +779,7 @@ function RecipesTab({ plan }: { plan: FactoryPlan }) {
               <th className="text-right">Machines</th>
               {hasOC && <th className="text-right">Clock</th>}
               {hasOC && <th className="text-right">Shards</th>}
+              <th className="text-right">Belt/Pipe</th>
               <th className="text-right">Power</th>
             </tr>
           </thead>
@@ -757,35 +787,61 @@ function RecipesTab({ plan }: { plan: FactoryPlan }) {
             {plan.lines
               .slice()
               .sort((a, b) => b.machines - a.machines)
-              .map((l, i) => (
-                <tr key={i} className="border-t border-ficsit-border">
-                  <td className="py-1.5">
-                    <div className="flex items-center gap-2">
-                      <ItemIcon
-                        className={l.recipe.products[0]?.item ?? ''}
-                        size={22}
-                        cls="rounded-sm bg-ficsit-panel2 p-0.5"
-                      />
-                      <span>{l.recipe.name}</span>
-                      {l.recipe.alternate && <Badge tone="warn">Alt</Badge>}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-1.5">
-                      <ItemIcon className={l.building} kind="building" size={18} />
-                      {data?.buildings[l.building]?.name ?? l.building}
-                    </div>
-                  </td>
-                  <td className="text-right font-mono">{fmt(l.machines, 2)}</td>
-                  {hasOC && <td className="text-right font-mono">{formatClockTiers(l)}</td>}
-                  {hasOC && <td className="text-right font-mono">{l.shards > 0 ? fmt(l.shards, 1) : '—'}</td>}
-                  <td className="text-right font-mono">{fmt(l.powerKW)} MW</td>
-                </tr>
-              ))}
+              .map((l, i) => {
+                const tier = lineTier(l);
+                return (
+                  <tr key={i} className="border-t border-ficsit-border">
+                    <td className="py-1.5">
+                      <div className="flex items-center gap-2">
+                        <ItemIcon
+                          className={l.recipe.products[0]?.item ?? ''}
+                          size={22}
+                          cls="rounded-sm bg-ficsit-panel2 p-0.5"
+                        />
+                        <span>{l.recipe.name}</span>
+                        {l.recipe.alternate && <Badge tone="warn">Alt</Badge>}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        <ItemIcon className={l.building} kind="building" size={18} />
+                        {data?.buildings[l.building]?.name ?? l.building}
+                      </div>
+                    </td>
+                    <td className="text-right font-mono">{fmt(l.machines, 2)}</td>
+                    {hasOC && <td className="text-right font-mono">{formatClockTiers(l)}</td>}
+                    {hasOC && <td className="text-right font-mono">{l.shards > 0 ? fmt(l.shards, 1) : '—'}</td>}
+                    <td className="text-right">
+                      {tier ? <TierBadge tier={tier} /> : <span className="text-ficsit-subtle">—</span>}
+                    </td>
+                    <td className="text-right font-mono">{fmt(l.powerKW)} MW</td>
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
       </CardBody>
     </Card>
+  );
+}
+
+/** Small badge that tells the user which belt or pipe Mk handles a flow.
+ *  Goes red when the flow exceeds a single Mk6 belt / Mk2 pipe and needs
+ *  parallel lines, so the user notices buildable bottlenecks at a glance. */
+function TierBadge({ tier }: { tier: TierRequirement }) {
+  const isMaxed = tier.parallel > 1;
+  return (
+    <span
+      title={`${tier.kind === 'belt' ? 'Belt' : 'Pipe'} ${tierLabel(tier)} · ${tier.perLine}/m per line`}
+      className={cn(
+        'inline-flex items-center rounded border px-1 py-0.5 font-mono text-[9px] uppercase tracking-wider',
+        isMaxed
+          ? 'border-ficsit-bad/40 bg-ficsit-bad/10 text-ficsit-bad'
+          : 'border-ficsit-border bg-ficsit-panel text-ficsit-subtle',
+      )}
+    >
+      {tierLabel(tier)}
+    </span>
   );
 }
 

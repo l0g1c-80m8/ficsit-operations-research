@@ -42,6 +42,23 @@ const RESET = '[0m';
 
 const UNLIMITED_SUPPLY = 1_000_000;
 
+// Belt / pipe tier breakpoints in items per minute (m³/min for liquids).
+// Kept in lockstep with `lib/utils/tiers.ts`. Hoisted to module top so that
+// `printPlan` — invoked at the top level — has them initialised before any
+// recipe-line flow asks for a tier badge.
+const BELT_TIERS = [60, 120, 270, 480, 780, 1200];
+const PIPE_TIERS = [300, 600];
+function tierFor(item, rate) {
+  if (rate <= 1e-6) return '';
+  const liquid = !!data.items[item]?.liquid;
+  const tiers = liquid ? PIPE_TIERS : BELT_TIERS;
+  for (let i = 0; i < tiers.length; i++) {
+    if (rate <= tiers[i] + 1e-6) return ` ${DIM}[Mk${i + 1}]${RESET}`;
+  }
+  const parallel = Math.ceil(rate / tiers[tiers.length - 1]);
+  return ` ${RED}[${parallel}× Mk${tiers.length}]${RESET}`;
+}
+
 /* ─── Lookup helpers ─── */
 
 const itemBySlug = new Map();
@@ -729,9 +746,11 @@ function printPlan(plan, data, { targetItemName, topRecipes = Infinity }) {
         `${pad(l.recipe.name, 32)} ${pad(bldName, 22)} ${padR(fmt(l.machines, 2), 12)} ${padR(power, 20)} ${padR(flag, 6)}`,
       );
     }
-    // Flows per line
-    const ins = l.inputs.map((i) => `${fmt(i.ratePerMin)}/m ${data.items[i.item]?.name ?? i.item}`).join(', ');
-    const outs = l.outputs.map((o) => `${fmt(o.ratePerMin)}/m ${data.items[o.item]?.name ?? o.item}`).join(', ');
+    // Flows per line, with the cheapest belt/pipe tier for each flow shown
+    // in a trailing [MkN] tag so the user knows what infrastructure each one
+    // needs. Red tag = exceeds single max-tier line, so they need parallel.
+    const ins = l.inputs.map((i) => `${fmt(i.ratePerMin)}/m ${data.items[i.item]?.name ?? i.item}${tierFor(i.item, i.ratePerMin)}`).join(', ');
+    const outs = l.outputs.map((o) => `${fmt(o.ratePerMin)}/m ${data.items[o.item]?.name ?? o.item}${tierFor(o.item, o.ratePerMin)}`).join(', ');
     console.log(`  ${DIM}in:${RESET}  ${ins}`);
     console.log(`  ${DIM}out:${RESET} ${outs}`);
   }

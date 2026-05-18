@@ -260,10 +260,17 @@ export function solveFactory(
         const energy = fuelItem?.energyValue ?? 0;
         if (energy <= 0) return; // skip fuels missing energy data
         const fuelPerMin = (60 / energy) * g.powerProduction;
+        // Generators don't contribute to the machine-count objective.
+        // Reason: with a continuous LP, fractional machines make
+        // high-MW generators (Nuclear @ 2500 MW) trivially optimal for any
+        // demand even though you can't build 0.01 of a nuclear plant.
+        // Excluding them from `obj` flips the optimization to "minimize the
+        // downstream fuel chain" — Coal wins for small loads because Coal is
+        // an auto-supplied raw with zero recipe chain.
         const v: Record<string, number> = {
           [POWER_KEY]: g.powerProduction,
           [`bal_${fuel.item}`]: -fuelPerMin,
-          obj: hasFixedTarget ? 1 : 0,
+          obj: 0,
         };
         const byAmt = fuel.byproductAmount ?? 0;
         if (fuel.byproduct && byAmt > 0) {

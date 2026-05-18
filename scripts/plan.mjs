@@ -416,10 +416,13 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
         const energy = data.items[fuel.item]?.energyValue ?? 0;
         if (energy <= 0) return;
         const fuelPerMin = (60 / energy) * g.powerProduction;
+        // obj=0 — generators are "free" in the machine-count objective; the
+        // LP minimises their fuel chain instead. Stops fractional-Nuclear from
+        // winning every small-load comparison via continuous-relaxation magic.
         const v = {
           bal___power__: g.powerProduction,
           [`bal_${fuel.item}`]: -fuelPerMin,
-          obj: hasFixedTarget ? 1 : 0,
+          obj: 0,
         };
         const byAmt = fuel.byproductAmount ?? 0;
         if (fuel.byproduct && byAmt > 0) v[`bal_${fuel.byproduct}`] = fuelPerMin * byAmt;

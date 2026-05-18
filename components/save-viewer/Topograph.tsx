@@ -301,7 +301,7 @@ export function Topograph({
             <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary, worldBox)} title="Download as SVG">
               <Download className="h-3.5 w-3.5" /> SVG
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox)} title="Download as PNG (≈ 8 K wide, high-quality smoothing)">
+            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox)} title="Download as PNG (≈ 12 K wide, 1.5× supersampled, high-quality downsample)">
               <ImageDown className="h-3.5 w-3.5" /> PNG
             </Button>
             <span className="mx-1 h-5 w-px bg-ficsit-border" />

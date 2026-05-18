@@ -52,6 +52,20 @@ export interface PlacedActor {
   currentRecipe?: string;
 }
 
+/** A single edge in the topograph network rendering — either a spline
+ *  segment on a belt/pipe/hypertube/rail actor, or a power-line connection
+ *  resolved from its source/target pole references. World-space coords. */
+export interface NetworkEdge {
+  category: SaveCategory;
+  ax: number;
+  ay: number;
+  /** World Z of endpoint A; allows the floor slicer to filter cross-floor edges. */
+  az: number;
+  bx: number;
+  by: number;
+  bz: number;
+}
+
 export interface ParsedSaveSummary {
   header: SaveHeaderInfo | null;
   actorCount: number;
@@ -63,6 +77,10 @@ export interface ParsedSaveSummary {
   categoryCounts: Record<SaveCategory, number>;
   /** axis-aligned bounding box of placed actors */
   bbox: { minX: number; maxX: number; minY: number; maxY: number } | null;
+  /** Explicit edges for network categories — extracted from `mSplineData` on
+   *  spline-based actors (rails/hypertubes/pipes/non-chain belts) and from
+   *  `PowerLineSpecialProperties` source/target on power-line actors. */
+  connections: NetworkEdge[];
 }
 
 /** A persisted upload entry in the save history (localStorage). */

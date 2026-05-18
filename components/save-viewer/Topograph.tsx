@@ -14,7 +14,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { cn, fmt } from '@/lib/utils';
-import type { ParsedSaveSummary, PlacedActor, SaveCategory } from '@/lib/save/types';
+import type { NetworkEdge, ParsedSaveSummary, PlacedActor, SaveCategory } from '@/lib/save/types';
 import { CATEGORY_META, type CategoryMeta, type CategoryShape } from '@/lib/save/categorize';
 import { actorOnFloor, detectFloors, type DetectedFloor } from '@/lib/save/floors';
 import { buildProximityEdges } from '@/lib/save/network';
@@ -141,6 +141,26 @@ export function Topograph({
       grouped: map,
       filteredCounts: counts as Record<SaveCategory, number> | null,
     };
+  }, [summary, activeFloor]);
+
+  /** Per-category index of explicit edges read from the save. Used by
+   *  `NetworkLayer` to draw real belts/pipes/rail/hypertubes/power-lines
+   *  rather than guessing topology from proximity. When a floor is active
+   *  we drop edges whose either endpoint sits outside the slab so the floor
+   *  view doesn't render cross-floor cables/belts. */
+  const connectionsByCategory = useMemo(() => {
+    const map = new Map<SaveCategory, NetworkEdge[]>();
+    for (const e of summary.connections ?? []) {
+      if (activeFloor) {
+        const aOn = e.az >= activeFloor.zMin && e.az <= activeFloor.zMax;
+        const bOn = e.bz >= activeFloor.zMin && e.bz <= activeFloor.zMax;
+        if (!aOn || !bOn) continue;
+      }
+      const arr = map.get(e.category);
+      if (arr) arr.push(e);
+      else map.set(e.category, [e]);
+    }
+    return map;
   }, [summary, activeFloor]);
 
   const screenToWorld = useCallback((e: { clientX: number; clientY: number }) => {
@@ -352,6 +372,7 @@ export function Topograph({
                 key={cat}
                 category={cat}
                 actors={grouped.get(cat) ?? []}
+                connections={connectionsByCategory.get(cat) ?? []}
                 viewBoxW={viewBox.w}
                 highlightClasses={highlightClasses}
               />
@@ -897,21 +918,24 @@ function LayerShapeBadge({ color, shape, on }: { color: string; shape: CategoryS
 function Layer({
   category,
   actors,
+  connections,
   viewBoxW,
   highlightClasses,
 }: {
   category: SaveCategory;
   actors: PlacedActor[];
+  connections: NetworkEdge[];
   viewBoxW: number;
   highlightClasses?: Set<string>;
 }) {
   const meta = CATEGORY_META[category];
-  if (actors.length === 0) return null;
+  if (actors.length === 0 && connections.length === 0) return null;
 
   if (meta.shape === 'network') {
     return (
       <NetworkLayer
         actors={actors}
+        connections={connections}
         meta={meta}
         viewBoxW={viewBoxW}
         highlightClasses={highlightClasses}
@@ -967,17 +991,26 @@ function Layer({
  *  belt poles don't drown the DOM. */
 function NetworkLayer({
   actors,
+  connections,
   meta,
   viewBoxW,
   highlightClasses,
 }: {
   actors: PlacedActor[];
+  connections: NetworkEdge[];
   meta: CategoryMeta;
   viewBoxW: number;
   highlightClasses?: Set<string>;
 }) {
   const maxDist = meta.networkMaxDist ?? 1000;
-  const edges = useMemo(() => buildProximityEdges(actors, maxDist, 2), [actors, maxDist]);
+  // Prefer the explicit edges read from the save (mSplineData + power-line
+  // source/target). Only fall back to proximity inference when the save
+  // didn't supply any — that path covers legacy saves whose spline data
+  // wasn't surfaced by the parser version we're on.
+  const edges = useMemo(() => {
+    if (connections.length > 0) return connections;
+    return buildProximityEdges(actors, maxDist, 2);
+  }, [connections, actors, maxDist]);
   // Stroke width scales with the current viewBox so lines stay ≈ 1.5 px
   // wide on screen at any zoom level (≈ 0.0014 × view-box-width / scale).
   const strokeWidth = Math.max(viewBoxW * 0.0014, 30);

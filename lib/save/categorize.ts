@@ -27,9 +27,12 @@ const CATEGORY_PATTERNS: { pattern: RegExp; category: SaveCategory }[] = [
   { pattern: /Build_(PowerLine|PowerPole|PowerSwitch|PriorityPowerSwitch|PowerTower)/i, category: 'power_grid' },
   // Item storage (containers, dimensional depot, central storage).
   { pattern: /Build_(StorageContainer|IndustrialStorageContainer|DimensionalDepot|CentralStorage|StorageBlueprint|StorageHazard|StorageMercer|StoragePlayer)/i, category: 'item_storage' },
-  // Rolling stock — before `rail` and `vehicle` so locomotives don't fall
-  // into the rail-infrastructure bucket via `/Train/` paths.
-  { pattern: /(Build_Locomotive|Build_FreightWagon|BP_Locomotive|BP_FreightWagon|\/Train\/)/i, category: 'train' },
+  // Rolling stock — match by explicit class names. We deliberately do NOT
+  // match the broad `/Train/` path segment because rail-track classes also
+  // live under `/Factory/Train/Track/` and that pattern was swallowing them
+  // into the train bucket (instead of rail), which silently broke the
+  // network-edge extraction downstream.
+  { pattern: /(Build_Locomotive|Build_FreightWagon|BP_Locomotive|BP_FreightWagon|BP_Train)/i, category: 'train' },
   // Rail infrastructure (track, stations, platforms, signals).
   { pattern: /Build_(RailroadTrack|RailroadSignal|RailroadSwitch|TrainStation|TrainPlatform|TrainDocking|FreightPlatform)/i, category: 'rail' },
   // Pioneer-placed special buildings: Hub, workbench/workshop, AWESOME, MAM,

@@ -27,6 +27,8 @@ describe('buildProximityEdges', () => {
       expect(Math.abs(e.bx - e.ax)).toBe(100);
       expect(e.ay).toBe(0);
       expect(e.by).toBe(0);
+      expect(e.az).toBe(0);
+      expect(e.bz).toBe(0);
     }
   });
 

@@ -12,8 +12,10 @@ import type { PlacedActor } from './types';
 export interface ProxEdge {
   ax: number;
   ay: number;
+  az: number;
   bx: number;
   by: number;
+  bz: number;
 }
 
 /** Spatial-hashed k-NN edge builder. Each actor gets up to `k` edges to its
@@ -64,7 +66,7 @@ export function buildProximityEdges(actors: PlacedActor[], maxDist: number, k = 
       if (seen.has(key)) continue;
       seen.add(key);
       const b = actors[j];
-      edges.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
+      edges.push({ ax: a.x, ay: a.y, az: a.z, bx: b.x, by: b.y, bz: b.z });
     }
   }
   return edges;

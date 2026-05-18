@@ -115,6 +115,8 @@ const opts = {
   raw: false,
   strict: false,
   autoRaw: false,
+  shards: 0,
+  withPower: false,
   topRecipes: Infinity,
   help: false,
 };
@@ -130,6 +132,8 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--raw') opts.raw = true;
   else if (a === '--strict' || a === '--no-auto-raw') opts.strict = true;
   else if (a === '--auto-raw' || a === '--unlimited-raws') opts.autoRaw = true;
+  else if (a === '--shards' || a === '--power-shards') opts.shards = Math.max(0, Math.floor(Number(args[++i]) || 0));
+  else if (a === '--with-power' || a === '--power' || a === '--plan-power') opts.withPower = true;
   else if (a === '--top') opts.topRecipes = Number(args[++i]);
   else if (a === '--supply' || a === '-s') {
     const value = args[++i] ?? '';
@@ -287,6 +291,10 @@ Flags:
       --strict            Force-disable auto-supply. Every consumed raw must be listed via --supply.
       --auto-raw          Force auto-supply ON even when --supply is given (advanced; otherwise --supply
                           implies strict so the Converter can't transmute around your caps).
+      --shards N          Power Shard budget for overclocking. >0 lets the solver run recipes at
+                          150/200/250% clock (1/2/3 shards per machine) wherever it cuts the machine
+                          count the most. Power scales by clock^1.32.
+      --with-power        Plan power production end-to-end: generators + fuel chain enter the LP.
   -i, --interactive       Prompt-driven mode.
       --list KIND         List "recipes" (default), "items", or "buildings".
   -h, --help              Show this help.
@@ -354,6 +362,17 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
   // For each item, production - consumption (after sinking targets) must be ≥ -supply_cap.
   // This naturally allows byproduct surplus to be absorbed (AWESOME Sink) without
   // forcing the LP to perfectly clear every intermediate.
+  // Power planning: synthetic `__power__` item that recipes consume and
+  // generators produce. Add fuel + byproduct items to the LP scope too.
+  if (opts.withPower) {
+    items.add('__power__');
+    for (const g of data.generators) {
+      for (const f of g.fuels ?? []) {
+        items.add(f.item);
+        if (f.byproduct) items.add(f.byproduct);
+      }
+    }
+  }
   for (const it of items) {
     const cap = supplyByItem.get(it) ?? 0;
     constraints[`bal_${it}`] = { min: -cap };
@@ -364,13 +383,50 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
   // make from this supply" mode).
   const hasFixedTarget = targets.some((t) => (t.minRatePerMin ?? 0) > 0);
 
+  // Overclocking: when shards > 0, expand each recipe across 4 clock tiers
+  // (100/150/200/250%) costing 0/1/2/3 shards per machine. Power scales as
+  // clock^log2(2.5) ≈ clock^1.32193 per the Update 1.0 formula.
+  const OC_TIERS = opts.shards > 0
+    ? [
+        { clock: 1.0, shardsEach: 0 },
+        { clock: 1.5, shardsEach: 1 },
+        { clock: 2.0, shardsEach: 2 },
+        { clock: 2.5, shardsEach: 3 },
+      ]
+    : [{ clock: 1.0, shardsEach: 0 }];
+  const POWER_EXP = Math.log2(2.5);
+
   candidate.forEach((r, idx) => {
-    const v = {};
-    for (const p of r.products) v[`bal_${p.item}`] = (v[`bal_${p.item}`] ?? 0) + ratePerMin(p.amount, r.time);
-    for (const i of r.ingredients) v[`bal_${i.item}`] = (v[`bal_${i.item}`] ?? 0) - ratePerMin(i.amount, r.time);
-    v.obj = hasFixedTarget ? 1 : 0;
-    variables[`x_${idx}`] = v;
+    const basePowerKW = recipePowerKW(r);
+    OC_TIERS.forEach((tier, tIdx) => {
+      const v = {};
+      for (const p of r.products) v[`bal_${p.item}`] = (v[`bal_${p.item}`] ?? 0) + ratePerMin(p.amount, r.time) * tier.clock;
+      for (const i of r.ingredients) v[`bal_${i.item}`] = (v[`bal_${i.item}`] ?? 0) - ratePerMin(i.amount, r.time) * tier.clock;
+      v.obj = hasFixedTarget ? 1 : 0;
+      if (tier.shardsEach > 0) v.shard_budget = tier.shardsEach;
+      if (opts.withPower) v.bal___power__ = -basePowerKW * Math.pow(tier.clock, POWER_EXP);
+      variables[`x_${idx}_${tIdx}`] = v;
+    });
   });
+  if (opts.shards > 0) constraints.shard_budget = { max: opts.shards };
+
+  if (opts.withPower) {
+    data.generators.forEach((g, gIdx) => {
+      (g.fuels ?? []).forEach((fuel, fIdx) => {
+        const energy = data.items[fuel.item]?.energyValue ?? 0;
+        if (energy <= 0) return;
+        const fuelPerMin = (60 / energy) * g.powerProduction;
+        const v = {
+          bal___power__: g.powerProduction,
+          [`bal_${fuel.item}`]: -fuelPerMin,
+          obj: hasFixedTarget ? 1 : 0,
+        };
+        const byAmt = fuel.byproductAmount ?? 0;
+        if (fuel.byproduct && byAmt > 0) v[`bal_${fuel.byproduct}`] = fuelPerMin * byAmt;
+        variables[`g_${gIdx}_${fIdx}`] = v;
+      });
+    });
+  }
 
   for (const t of targets) {
     variables[`produced_${t.item}`] = {
@@ -403,23 +459,69 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
   const buildingTotals = new Map();
   let totalMachines = 0;
   let totalPowerKW = 0;
+  let totalShards = 0;
   candidate.forEach((r, idx) => {
-    const x = result[`x_${idx}`] ?? 0;
-    if (x < EPS) return;
+    let machines = 0;
+    let throughputUnits = 0;
+    let powerKW = 0;
+    let shards = 0;
+    const clockTiers = [];
+    OC_TIERS.forEach((tier, tIdx) => {
+      const x = result[`x_${idx}_${tIdx}`] ?? 0;
+      if (x < EPS) return;
+      machines += x;
+      throughputUnits += x * tier.clock;
+      powerKW += x * recipePowerKW(r) * Math.pow(tier.clock, POWER_EXP);
+      shards += x * tier.shardsEach;
+      clockTiers.push({ clock: tier.clock, shardsEach: tier.shardsEach, machines: x });
+    });
+    if (machines < EPS) return;
     const building = r.producedIn[0];
-    const power = recipePowerKW(r) * x;
     lines.push({
       recipe: r,
       building,
-      machines: x,
-      outputs: r.products.map((p) => ({ item: p.item, ratePerMin: ratePerMin(p.amount, r.time) * x })),
-      inputs: r.ingredients.map((i) => ({ item: i.item, ratePerMin: ratePerMin(i.amount, r.time) * x })),
-      powerKW: power,
+      machines,
+      outputs: r.products.map((p) => ({ item: p.item, ratePerMin: ratePerMin(p.amount, r.time) * throughputUnits })),
+      inputs: r.ingredients.map((i) => ({ item: i.item, ratePerMin: ratePerMin(i.amount, r.time) * throughputUnits })),
+      powerKW,
+      shards,
+      clockTiers,
     });
-    buildingTotals.set(building, (buildingTotals.get(building) ?? 0) + x);
-    totalMachines += x;
-    totalPowerKW += power;
+    buildingTotals.set(building, (buildingTotals.get(building) ?? 0) + machines);
+    totalMachines += machines;
+    totalPowerKW += powerKW;
+    totalShards += shards;
   });
+
+  const generatorLines = [];
+  let totalPowerProducedKW = 0;
+  if (opts.withPower) {
+    data.generators.forEach((g, gIdx) => {
+      (g.fuels ?? []).forEach((fuel, fIdx) => {
+        const machines = result[`g_${gIdx}_${fIdx}`] ?? 0;
+        if (machines < EPS) return;
+        const energy = data.items[fuel.item]?.energyValue ?? 0;
+        const fuelRatePerMin = energy > 0 ? (60 / energy) * g.powerProduction * machines : 0;
+        const byproductRatePerMin =
+          fuel.byproduct && (fuel.byproductAmount ?? 0) > 0
+            ? fuelRatePerMin * (fuel.byproductAmount ?? 0)
+            : 0;
+        const power = g.powerProduction * machines;
+        generatorLines.push({
+          generator: g.className,
+          fuelItem: fuel.item,
+          machines,
+          fuelRatePerMin,
+          byproductItem: fuel.byproduct ?? null,
+          byproductRatePerMin,
+          powerKW: power,
+        });
+        buildingTotals.set(g.className, (buildingTotals.get(g.className) ?? 0) + machines);
+        totalMachines += machines;
+        totalPowerProducedKW += power;
+      });
+    });
+  }
 
   const outputs = targets.map((t) => ({ item: t.item, ratePerMin: result[`produced_${t.item}`] ?? 0 }));
   // Tally net raw consumption per supply item. Show user-specified caps even at 0,
@@ -432,6 +534,10 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
         for (const i of line.inputs) if (i.item === s.item) net += i.ratePerMin;
         for (const o of line.outputs) if (o.item === s.item) net -= o.ratePerMin;
       }
+      for (const gl of generatorLines) {
+        if (gl.fuelItem === s.item) net += gl.fuelRatePerMin;
+        if (gl.byproductItem === s.item) net -= gl.byproductRatePerMin;
+      }
       return { item: s.item, ratePerMin: Math.max(0, net), userCapped: userItems.has(s.item), cap: s.ratePerMin };
     })
     .filter((row) => row.userCapped || row.ratePerMin > EPS)
@@ -439,8 +545,12 @@ function solveFactory({ data, supplies, targets, includeAlternates }) {
   return {
     status: 'optimal',
     lines,
+    generatorLines,
     totalMachines,
     totalPowerKW,
+    totalPowerProducedKW,
+    totalShards,
+    shardBudget: opts.shards,
     buildingsByType: [...buildingTotals.entries()].map(([building, machines]) => ({ building, machines })),
     outputs,
     consumedInputs,
@@ -515,9 +625,32 @@ function printPlan(plan, data, { targetItemName, topRecipes = Infinity }) {
   console.log(rule(64, '═'));
   console.log(`${BOLD}TOTALS${RESET}`);
   console.log(`  machines: ${ORANGE}${fmt(plan.totalMachines, 1).padStart(8)}${RESET}`);
-  console.log(`  power:    ${ORANGE}${(fmt(plan.totalPowerKW) + ' MW').padStart(10)}${RESET}  ${suggestGenerators(plan.totalPowerKW)}`);
+  if (plan.generatorLines && plan.generatorLines.length > 0) {
+    console.log(`  draw:     ${ORANGE}${(fmt(plan.totalPowerKW) + ' MW').padStart(10)}${RESET}  recipes consume`);
+    console.log(`  made:     ${ORANGE}${(fmt(plan.totalPowerProducedKW) + ' MW').padStart(10)}${RESET}  generators produce`);
+  } else {
+    console.log(`  power:    ${ORANGE}${(fmt(plan.totalPowerKW) + ' MW').padStart(10)}${RESET}  ${suggestGenerators(plan.totalPowerKW)}`);
+  }
   console.log(`  recipes:  ${ORANGE}${String(plan.lines.length).padStart(8)}${RESET}  lines`);
+  if (plan.shardBudget > 0) {
+    const usedFmt = fmt(plan.totalShards, 1);
+    console.log(`  shards:   ${ORANGE}${usedFmt.padStart(8)}${RESET}  / ${plan.shardBudget} budgeted`);
+  }
   console.log();
+
+  if (plan.generatorLines && plan.generatorLines.length > 0) {
+    console.log(`${BOLD}POWER GENERATION${RESET}`);
+    for (const gl of plan.generatorLines) {
+      const gname = data.buildings[gl.generator]?.name ?? gl.generator;
+      const fname = data.items[gl.fuelItem]?.name ?? gl.fuelItem;
+      let line = `  ${ORANGE}${padR(fmt(gl.machines, 1), 6)}${RESET} × ${pad(gname, 24)}  fuel: ${fmt(gl.fuelRatePerMin)}/m ${fname}`;
+      if (gl.byproductItem && gl.byproductRatePerMin > 1e-6) {
+        line += `   ${YELLOW}+ ${fmt(gl.byproductRatePerMin)}/m ${data.items[gl.byproductItem]?.name ?? gl.byproductItem}${RESET}`;
+      }
+      console.log(line);
+    }
+    console.log();
+  }
 
   console.log(`${BOLD}BUILDINGS${RESET}`);
   const byType = plan.buildingsByType.slice().sort((a, b) => b.machines - a.machines);
@@ -527,11 +660,19 @@ function printPlan(plan, data, { targetItemName, topRecipes = Infinity }) {
   }
   console.log();
 
-  console.log(rule(96, '═'));
-  console.log(
-    `${BOLD}${pad('RECIPE LINES', 32)} ${pad('BUILDING', 22)} ${padR('×MACHINES', 12)} ${padR('POWER', 20)} ${padR('FLAG', 6)}${RESET}`,
-  );
-  console.log(rule(96));
+  const ocActive = (plan.shardBudget ?? 0) > 0;
+  const width = ocActive ? 112 : 96;
+  console.log(rule(width, '═'));
+  if (ocActive) {
+    console.log(
+      `${BOLD}${pad('RECIPE LINES', 32)} ${pad('BUILDING', 22)} ${padR('×MACHINES', 12)} ${padR('CLOCK', 14)} ${padR('POWER', 18)} ${padR('FLAG', 6)}${RESET}`,
+    );
+  } else {
+    console.log(
+      `${BOLD}${pad('RECIPE LINES', 32)} ${pad('BUILDING', 22)} ${padR('×MACHINES', 12)} ${padR('POWER', 20)} ${padR('FLAG', 6)}${RESET}`,
+    );
+  }
+  console.log(rule(width));
   const sorted = plan.lines.slice().sort((a, b) => b.machines - a.machines);
   let shown = 0;
   for (const l of sorted) {
@@ -545,16 +686,23 @@ function printPlan(plan, data, { targetItemName, topRecipes = Infinity }) {
     const power = l.recipe.isVariablePower
       ? `${fmt(l.recipe.minPower * l.machines)}–${fmt(l.recipe.maxPower * l.machines)} MW`
       : `${fmt(l.powerKW)} MW`;
-    console.log(
-      `${pad(l.recipe.name, 32)} ${pad(bldName, 22)} ${padR(fmt(l.machines, 2), 12)} ${padR(power, 20)} ${padR(flag, 6)}`,
-    );
+    if (ocActive) {
+      const clockCol = formatClockSummary(l);
+      console.log(
+        `${pad(l.recipe.name, 32)} ${pad(bldName, 22)} ${padR(fmt(l.machines, 2), 12)} ${padR(clockCol, 14)} ${padR(power, 18)} ${padR(flag, 6)}`,
+      );
+    } else {
+      console.log(
+        `${pad(l.recipe.name, 32)} ${pad(bldName, 22)} ${padR(fmt(l.machines, 2), 12)} ${padR(power, 20)} ${padR(flag, 6)}`,
+      );
+    }
     // Flows per line
     const ins = l.inputs.map((i) => `${fmt(i.ratePerMin)}/m ${data.items[i.item]?.name ?? i.item}`).join(', ');
     const outs = l.outputs.map((o) => `${fmt(o.ratePerMin)}/m ${data.items[o.item]?.name ?? o.item}`).join(', ');
     console.log(`  ${DIM}in:${RESET}  ${ins}`);
     console.log(`  ${DIM}out:${RESET} ${outs}`);
   }
-  console.log(rule(96, '═'));
+  console.log(rule(width, '═'));
 
   // AWESOME Sink value. Liquids/gases can't actually be sunk, so they're zero.
   const sinkPts = (item) => {
@@ -569,6 +717,15 @@ function printPlan(plan, data, { targetItemName, topRecipes = Infinity }) {
   console.log(`  inputs:  ${GRAY}${fmt(sinkIn).padStart(10)} pts/m${RESET}`);
   console.log(`  ${BOLD}net:     ${(sinkOut - sinkIn) >= 0 ? GREEN : RED}${fmt(sinkOut - sinkIn).padStart(10)} pts/m${RESET}`);
   console.log();
+}
+
+function formatClockSummary(line) {
+  if (!line.clockTiers || line.clockTiers.length === 0) return '100%';
+  if (line.clockTiers.length === 1) return `${Math.round(line.clockTiers[0].clock * 100)}%`;
+  return line.clockTiers
+    .filter((t) => t.machines > 1e-6)
+    .map((t) => `${fmt(t.machines, 1)}@${Math.round(t.clock * 100)}%`)
+    .join(' ');
 }
 
 function suggestGenerators(mw) {

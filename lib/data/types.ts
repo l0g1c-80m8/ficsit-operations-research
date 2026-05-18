@@ -65,6 +65,14 @@ export interface SatResource {
 export interface SatGenerator {
   className: ClassName;
   fuel: ClassName[];
+  /** Detailed fuel records with supplemental / byproduct info. The flat
+   *  `fuel` array above is the legacy list of just the fuel items. */
+  fuels?: Array<{
+    item: ClassName;
+    supplementalItem?: ClassName | null;
+    byproduct?: ClassName | null;
+    byproductAmount?: number;
+  }>;
   powerProduction: number;
   powerProductionExponent: number;
   waterToPowerRatio?: number;

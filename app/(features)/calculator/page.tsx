@@ -75,6 +75,8 @@ export default function CalculatorPage() {
       {
         includeAlternates: eff.allowAlternates,
         autoSupplyRawResources: effectiveAutoSupply(eff),
+        shardBudget: eff.shardBudget,
+        includePowerProduction: eff.includePowerProduction,
       },
     );
     setPlan(result);
@@ -281,6 +283,20 @@ export default function CalculatorPage() {
                 />
                 Allow alternate recipes <span className="text-[10px] text-ficsit-subtle">(Hard Drive only — MAM-researched recipes are always available)</span>
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={inputs.includePowerProduction ?? false}
+                  onChange={(e) =>
+                    setInputs((i) => ({ ...i, includePowerProduction: e.target.checked }))
+                  }
+                  className="h-4 w-4 accent-ficsit-accent"
+                />
+                Plan power production
+                <span className="text-[10px] text-ficsit-subtle">
+                  (generators + fuel chain folded into the LP)
+                </span>
+              </label>
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <label className="flex items-center gap-2">
                   <input
@@ -306,6 +322,41 @@ export default function CalculatorPage() {
                     Auto · {inputs.supplies.length === 0 ? 'no supplies → on' : 'supplies listed → off'}
                   </span>
                 )}
+              </div>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Overclocking"
+              subtitle={
+                (inputs.shardBudget ?? 0) > 0
+                  ? `Up to ${inputs.shardBudget} Power Shard${inputs.shardBudget === 1 ? '' : 's'} can be distributed across recipes. 1/2/3 shards = 150/200/250% clock; power scales by clock^1.32.`
+                  : 'All machines run at 100% clock. Set a shard budget to let the planner overclock recipes where it cuts the machine count the most.'
+              }
+            />
+            <CardBody>
+              <div className="flex items-center gap-2 text-sm">
+                <label htmlFor="shard-budget" className="text-ficsit-subtle">
+                  Power Shards available
+                </label>
+                <div className="relative w-28">
+                  <Input
+                    id="shard-budget"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={inputs.shardBudget || ''}
+                    placeholder="0"
+                    onChange={(e) =>
+                      setInputs((i) => ({ ...i, shardBudget: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))
+                    }
+                    className="text-right font-mono tabular-nums pr-10"
+                  />
+                  <span className="pointer-events-none absolute right-2 top-2 text-[10px] uppercase text-ficsit-subtle">
+                    shd
+                  </span>
+                </div>
               </div>
             </CardBody>
           </Card>
@@ -495,10 +546,25 @@ function PlanView({ plan, inputs, data, onEnableAlternates, onEnableAutoSupply }
     <div className="space-y-4">
       <Card>
         <CardHeader title="Plan Summary" right={<Badge tone="good">Optimal</Badge>} />
-        <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <CardBody className={cn('grid grid-cols-1 gap-3', summaryTileCount(plan) >= 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3')}>
           <StatTile label="Total Machines" value={fmt(plan.totalMachines, 1)} tone="accent" />
-          <StatTile label="Total Power" value={`${fmt(plan.totalPowerKW)} MW`} tone="accent" />
+          <StatTile
+            label={plan.generatorLines.length > 0 ? 'Power · draw / made' : 'Total Power'}
+            value={
+              plan.generatorLines.length > 0
+                ? `${fmt(plan.totalPowerKW)} / ${fmt(plan.totalPowerProducedKW)} MW`
+                : `${fmt(plan.totalPowerKW)} MW`
+            }
+            tone="accent"
+          />
           <StatTile label="Recipe Lines" value={String(plan.lines.length)} tone="accent" />
+          {plan.totalShards > 0 && (
+            <StatTile
+              label="Shards Used"
+              value={`${fmt(plan.totalShards, 1)}${inputs.shardBudget ? ` / ${inputs.shardBudget}` : ''}`}
+              tone="accent"
+            />
+          )}
         </CardBody>
       </Card>
 
@@ -521,6 +587,10 @@ function PlanView({ plan, inputs, data, onEnableAlternates, onEnableAutoSupply }
   );
 }
 
+function summaryTileCount(plan: FactoryPlan): number {
+  return 3 + (plan.totalShards > 0 ? 1 : 0);
+}
+
 function SummaryTab({ plan }: { plan: FactoryPlan }) {
   const { data } = useGameData();
   return (
@@ -536,6 +606,47 @@ function SummaryTab({ plan }: { plan: FactoryPlan }) {
           ))}
         </CardBody>
       </Card>
+
+      {plan.generatorLines.length > 0 && (
+        <Card>
+          <CardHeader
+            title="Power Generation"
+            subtitle={`Produces ${fmt(plan.totalPowerProducedKW)} MW vs ${fmt(plan.totalPowerKW)} MW drawn. Fuel + byproduct flows are folded into the Raw consumption tally.`}
+          />
+          <CardBody className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {plan.generatorLines.map((gl, i) => (
+              <div
+                key={`${gl.generator}-${gl.fuelItem}-${i}`}
+                className="flex items-center gap-3 rounded-md border border-ficsit-border bg-ficsit-panel2 px-3 py-2"
+              >
+                <ItemIcon className={gl.generator} kind="building" size={32} cls="rounded-md p-0.5 bg-ficsit-panel" />
+                <div className="min-w-0 flex-1 text-sm">
+                  <div className="truncate font-medium">
+                    {data?.buildings[gl.generator]?.name ?? gl.generator}
+                  </div>
+                  <div className="text-[11px] text-ficsit-subtle">
+                    {fmt(gl.fuelRatePerMin)}/m {data?.items[gl.fuelItem]?.name ?? gl.fuelItem}
+                    {gl.byproductItem && gl.byproductRatePerMin > 0 && (
+                      <>
+                        {' · '}
+                        <span className="text-amber-300">
+                          +{fmt(gl.byproductRatePerMin)}/m {data?.items[gl.byproductItem]?.name ?? gl.byproductItem}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono text-lg text-ficsit-accent">{fmt(gl.machines, 1)}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-ficsit-subtle">
+                    {fmt(gl.powerKW)} MW
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title="Consumed Inputs" />
@@ -573,9 +684,10 @@ function SummaryTab({ plan }: { plan: FactoryPlan }) {
 
 function RecipesTab({ plan }: { plan: FactoryPlan }) {
   const { data } = useGameData();
+  const hasOC = plan.lines.some((l) => l.clockTiers.length > 1 || (l.clockTiers[0]?.clock ?? 1) !== 1);
   return (
     <Card>
-      <CardHeader title="Recipe Lines" subtitle="Machines at 100% clock. Overclock to round up." />
+      <CardHeader title="Recipe Lines" subtitle={hasOC ? 'Clock per line is solver-chosen within your shard budget; machine counts reflect the chosen clocks.' : 'Machines at 100% clock. Overclock to round up.'} />
       <CardBody>
         <table className="w-full text-sm">
           <thead>
@@ -583,6 +695,8 @@ function RecipesTab({ plan }: { plan: FactoryPlan }) {
               <th className="text-left py-2">Recipe</th>
               <th className="text-left">Building</th>
               <th className="text-right">Machines</th>
+              {hasOC && <th className="text-right">Clock</th>}
+              {hasOC && <th className="text-right">Shards</th>}
               <th className="text-right">Power</th>
             </tr>
           </thead>
@@ -610,6 +724,8 @@ function RecipesTab({ plan }: { plan: FactoryPlan }) {
                     </div>
                   </td>
                   <td className="text-right font-mono">{fmt(l.machines, 2)}</td>
+                  {hasOC && <td className="text-right font-mono">{formatClockTiers(l)}</td>}
+                  {hasOC && <td className="text-right font-mono">{l.shards > 0 ? fmt(l.shards, 1) : '—'}</td>}
                   <td className="text-right font-mono">{fmt(l.powerKW)} MW</td>
                 </tr>
               ))}
@@ -618,5 +734,17 @@ function RecipesTab({ plan }: { plan: FactoryPlan }) {
       </CardBody>
     </Card>
   );
+}
+
+/** Format the clock-tier breakdown for a recipe line. One tier → just the
+ *  clock %; multiple tiers → space-separated "Nm @ X%" segments so a mixed
+ *  fleet is unambiguous. */
+function formatClockTiers(line: FactoryPlan['lines'][number]): string {
+  if (line.clockTiers.length === 0) return '—';
+  if (line.clockTiers.length === 1) return `${Math.round(line.clockTiers[0].clock * 100)}%`;
+  return line.clockTiers
+    .filter((t) => t.machines > 1e-6)
+    .map((t) => `${fmt(t.machines, 1)}m @ ${Math.round(t.clock * 100)}%`)
+    .join(' · ');
 }
 

@@ -45,6 +45,28 @@ export interface SolverOptions {
    * treated as unlimited. Set false to force the user to specify every raw
    * supply (strict mode). */
   autoSupplyRawResources?: boolean;
+  /** Power Shard budget for overclocking, in shards. When undefined or 0,
+   *  every machine is forced to 100% clock (original behavior). When set, the
+   *  LP can put any recipe on a 150%, 200%, or 250% clock tier at a cost of
+   *  1 / 2 / 3 shards per machine respectively — the solver allocates shards
+   *  where they cut the machine count the most. Power scales as
+   *  P(c) = P_base · c^1.32193 per the Update 1.0 formula. */
+  shardBudget?: number;
+  /** When true, the LP plans power production: each generator + fuel combo
+   *  becomes a candidate variable producing a synthetic `__power__` item,
+   *  recipes consume it, and the constraint says production ≥ consumption.
+   *  Fuel + byproduct flows enter the regular item balance, so the chain
+   *  back to raw resources is solved end-to-end. */
+  includePowerProduction?: boolean;
+}
+
+export interface ClockTierUsage {
+  /** Clock fraction, e.g. 1.0 = 100%, 2.5 = 250%. */
+  clock: number;
+  /** Shards each machine at this clock costs (0 / 1 / 2 / 3). */
+  shardsEach: number;
+  /** Machines (possibly fractional) running at this clock for this recipe. */
+  machines: number;
 }
 
 export interface FactoryPlanLine {
@@ -54,14 +76,44 @@ export interface FactoryPlanLine {
   outputs: { item: string; ratePerMin: number }[];
   inputs: { item: string; ratePerMin: number }[];
   powerKW: number;
+  /** Total Power Shards consumed by this line. */
+  shards: number;
+  /** Machines per clock tier. Always at least the 100% entry when there's any
+   *  output; only contains higher tiers when the solver chose to overclock. */
+  clockTiers: ClockTierUsage[];
+}
+
+export interface GeneratorLine {
+  /** Generator descriptor class (Desc_GeneratorCoal_C, …). */
+  generator: string;
+  /** Class name of the fuel this batch of machines burns. */
+  fuelItem: string;
+  /** Fractional machine count running at 100% clock. */
+  machines: number;
+  /** Fuel consumed across this line, per minute. */
+  fuelRatePerMin: number;
+  /** Byproduct class produced (e.g. Nuclear Waste) — undefined if none. */
+  byproductItem?: string;
+  /** Byproduct rate per minute. */
+  byproductRatePerMin: number;
+  /** Total MW produced by this line at 100% clock. */
+  powerKW: number;
 }
 
 export interface FactoryPlan {
   status: 'optimal' | 'infeasible' | 'unbounded' | 'error';
   message?: string;
   lines: FactoryPlanLine[];
+  /** Generator lines added when `includePowerProduction` was set; empty
+   *  otherwise. */
+  generatorLines: GeneratorLine[];
   totalMachines: number;
+  /** Total power *consumed* by recipe machines. */
   totalPowerKW: number;
+  /** Total power *produced* by generators; 0 when power planning is off. */
+  totalPowerProducedKW: number;
+  /** Total Power Shards consumed across the plan. 0 when OC is disabled. */
+  totalShards: number;
   buildingsByType: { building: string; machines: number }[];
   outputs: { item: string; ratePerMin: number }[];
   consumedInputs: { item: string; ratePerMin: number }[];
@@ -72,13 +124,42 @@ const EPS = 1e-6;
 
 const UNLIMITED_SUPPLY = 1_000_000;
 
+/** Power-scaling exponent for clock speed. Satisfactory Update 1.0 uses
+ *  log₂(2.5) ≈ 1.32193, which means 250 % clock draws ~3.39× base power. */
+const POWER_CLOCK_EXP = Math.log2(2.5);
+
+export function powerMultiplier(clock: number): number {
+  return Math.pow(clock, POWER_CLOCK_EXP);
+}
+
+/** Clock tiers enabled when overclocking is active. (100 % is always present
+ *  so the LP can keep machines at base when shards are scarce.) */
+const OC_TIERS: { clock: number; shardsEach: number }[] = [
+  { clock: 1.0, shardsEach: 0 },
+  { clock: 1.5, shardsEach: 1 },
+  { clock: 2.0, shardsEach: 2 },
+  { clock: 2.5, shardsEach: 3 },
+];
+
 export function solveFactory(
   data: SatData,
   supplies: SupplyInput[],
   targets: TargetOutput[],
   options: SolverOptions = {},
 ): FactoryPlan {
-  const { allowedRecipes, includeAlternates = true, autoSupplyRawResources = true } = options;
+  const {
+    allowedRecipes,
+    includeAlternates = true,
+    autoSupplyRawResources = true,
+    shardBudget,
+    includePowerProduction = false,
+  } = options;
+  const ocEnabled = (shardBudget ?? 0) > 0;
+  const tiers = ocEnabled ? OC_TIERS : [OC_TIERS[0]];
+  /** Synthetic balance key for power MW. Recipes consume from it; generators
+   *  produce to it. Never collides with any class name because no real item
+   *  starts with `__`. */
+  const POWER_KEY = 'bal___power__';
 
   const candidateRecipes = data.recipes.filter((r) => {
     if (!includeAlternates && r.alternate) return false;
@@ -108,6 +189,17 @@ export function solveFactory(
   }
   for (const k of supplyByItem.keys()) items.add(k);
   for (const k of targetSet.keys()) items.add(k);
+  // When power planning is on, also constrain the fuel and byproduct items
+  // each generator touches plus the synthetic __power__ balance row.
+  if (includePowerProduction) {
+    items.add('__power__');
+    for (const g of data.generators) {
+      for (const f of g.fuels ?? []) {
+        items.add(f.item);
+        if (f.byproduct) items.add(f.byproduct);
+      }
+    }
+  }
 
   const variables: Record<string, Record<string, number>> = {};
   const constraints: Record<string, { equal?: number; min?: number; max?: number }> = {};
@@ -130,19 +222,57 @@ export function solveFactory(
   //    can I make?).
   const hasFixedTarget = targets.some((t) => (t.minRatePerMin ?? 0) > 0);
 
-  // Recipe variables: net contribution to each item, plus a machine-cost stamp.
+  // Recipe variables — one per (recipe × clock tier). For each tier we scale
+  // the per-machine throughput by the clock fraction. Each machine still
+  // contributes 1 to the machine-count objective (one physical apparatus),
+  // and `shardsEach` to the optional shard-budget constraint.
   candidateRecipes.forEach((r, idx) => {
-    const v: Record<string, number> = {};
     const time = r.time;
-    for (const p of r.products) {
-      v[`bal_${p.item}`] = (v[`bal_${p.item}`] ?? 0) + ratePerMin(p.amount, time);
-    }
-    for (const i of r.ingredients) {
-      v[`bal_${i.item}`] = (v[`bal_${i.item}`] ?? 0) - ratePerMin(i.amount, time);
-    }
-    v.obj = hasFixedTarget ? 1 : 0;
-    variables[`x_${idx}`] = v;
+    const basePowerKW = recipePowerKW(r, data);
+    tiers.forEach((tier, tIdx) => {
+      const v: Record<string, number> = {};
+      for (const p of r.products) {
+        v[`bal_${p.item}`] = (v[`bal_${p.item}`] ?? 0) + ratePerMin(p.amount, time) * tier.clock;
+      }
+      for (const i of r.ingredients) {
+        v[`bal_${i.item}`] = (v[`bal_${i.item}`] ?? 0) - ratePerMin(i.amount, time) * tier.clock;
+      }
+      v.obj = hasFixedTarget ? 1 : 0;
+      if (ocEnabled && tier.shardsEach > 0) v.shard_budget = tier.shardsEach;
+      if (includePowerProduction) {
+        v[POWER_KEY] = -basePowerKW * powerMultiplier(tier.clock);
+      }
+      variables[`x_${idx}_${tIdx}`] = v;
+    });
   });
+
+  if (ocEnabled) constraints.shard_budget = { max: shardBudget ?? 0 };
+
+  // Generator variables — one per (generator × fuel). Each machine at 100%
+  // clock contributes +powerProduction MW to the power balance and -fuelRate
+  // to the fuel item, with any byproduct flowing into its own balance row.
+  // (We deliberately don't overclock generators — keeps the LP linear and is
+  // close to standard play, since OCing generators is unusual.)
+  if (includePowerProduction) {
+    data.generators.forEach((g, gIdx) => {
+      (g.fuels ?? []).forEach((fuel, fIdx) => {
+        const fuelItem = data.items[fuel.item];
+        const energy = fuelItem?.energyValue ?? 0;
+        if (energy <= 0) return; // skip fuels missing energy data
+        const fuelPerMin = (60 / energy) * g.powerProduction;
+        const v: Record<string, number> = {
+          [POWER_KEY]: g.powerProduction,
+          [`bal_${fuel.item}`]: -fuelPerMin,
+          obj: hasFixedTarget ? 1 : 0,
+        };
+        const byAmt = fuel.byproductAmount ?? 0;
+        if (fuel.byproduct && byAmt > 0) {
+          v[`bal_${fuel.byproduct}`] = fuelPerMin * byAmt;
+        }
+        variables[`g_${gIdx}_${fIdx}`] = v;
+      });
+    });
+  }
 
   // Production (sink) variables: only for targets, removes from the item balance.
   for (const t of targets) {
@@ -178,24 +308,75 @@ export function solveFactory(
   const buildingsByType = new Map<string, number>();
   let totalMachines = 0;
   let totalPowerKW = 0;
+  let totalShards = 0;
 
   candidateRecipes.forEach((r, idx) => {
-    const x = result[`x_${idx}`] ?? 0;
-    if (x < EPS) return;
+    // Collapse a recipe's tier variables into a per-line summary. Throughput
+    // is the sum of (clock × machines × base_rate); power uses the clock^1.32
+    // multiplier per tier so OC's true power cost is captured.
+    const clockTiers: ClockTierUsage[] = [];
+    let machines = 0;
+    let throughputUnits = 0; // Σ clock × machines  — used to scale base rates.
+    let powerKW = 0;
+    let shards = 0;
+    tiers.forEach((tier, tIdx) => {
+      const x = result[`x_${idx}_${tIdx}`] ?? 0;
+      if (x < EPS) return;
+      machines += x;
+      throughputUnits += x * tier.clock;
+      powerKW += x * recipePowerKW(r, data) * powerMultiplier(tier.clock);
+      shards += x * tier.shardsEach;
+      clockTiers.push({ clock: tier.clock, shardsEach: tier.shardsEach, machines: x });
+    });
+    if (machines < EPS) return;
     const building = r.producedIn[0];
-    const power = recipePowerKW(r, data) * x;
     lines.push({
       recipe: r,
       building,
-      machines: x,
-      outputs: r.products.map((p) => ({ item: p.item, ratePerMin: ratePerMin(p.amount, r.time) * x })),
-      inputs: r.ingredients.map((i) => ({ item: i.item, ratePerMin: ratePerMin(i.amount, r.time) * x })),
-      powerKW: power,
+      machines,
+      outputs: r.products.map((p) => ({ item: p.item, ratePerMin: ratePerMin(p.amount, r.time) * throughputUnits })),
+      inputs: r.ingredients.map((i) => ({ item: i.item, ratePerMin: ratePerMin(i.amount, r.time) * throughputUnits })),
+      powerKW,
+      shards,
+      clockTiers,
     });
-    buildingsByType.set(building, (buildingsByType.get(building) ?? 0) + x);
-    totalMachines += x;
-    totalPowerKW += power;
+    buildingsByType.set(building, (buildingsByType.get(building) ?? 0) + machines);
+    totalMachines += machines;
+    totalPowerKW += powerKW;
+    totalShards += shards;
   });
+
+  // Pull out the generator decisions and mirror them into the manifest so the
+  // UI's Building Manifest tab automatically picks them up.
+  const generatorLines: GeneratorLine[] = [];
+  let totalPowerProducedKW = 0;
+  if (includePowerProduction) {
+    data.generators.forEach((g, gIdx) => {
+      (g.fuels ?? []).forEach((fuel, fIdx) => {
+        const machines = result[`g_${gIdx}_${fIdx}`] ?? 0;
+        if (machines < EPS) return;
+        const energy = data.items[fuel.item]?.energyValue ?? 0;
+        const fuelRatePerMin = energy > 0 ? (60 / energy) * g.powerProduction * machines : 0;
+        const byproductRatePerMin =
+          fuel.byproduct && (fuel.byproductAmount ?? 0) > 0
+            ? fuelRatePerMin * (fuel.byproductAmount ?? 0)
+            : 0;
+        const powerKW = g.powerProduction * machines;
+        generatorLines.push({
+          generator: g.className,
+          fuelItem: fuel.item,
+          machines,
+          fuelRatePerMin,
+          byproductItem: fuel.byproduct ?? undefined,
+          byproductRatePerMin,
+          powerKW,
+        });
+        buildingsByType.set(g.className, (buildingsByType.get(g.className) ?? 0) + machines);
+        totalMachines += machines;
+        totalPowerProducedKW += powerKW;
+      });
+    });
+  }
 
   const outputs = targets.map((t) => ({
     item: t.item,
@@ -204,6 +385,9 @@ export function solveFactory(
 
   // Tally net consumption per raw resource (or per item the user explicitly
   // supplied). Net = recipe inputs minus recipe byproducts of the same item.
+  // When power planning is on, fuels burned by generators count as inputs too,
+  // so they show up in the Raws tally (and their parents — coal mining, water
+  // — flow back through the LP naturally).
   const consumptionByItem = new Map<string, number>();
   const itemsToReport = new Set<string>(supplies.map((s) => s.item));
   if (autoSupplyRawResources) {
@@ -214,6 +398,10 @@ export function solveFactory(
     for (const line of lines) {
       for (const i of line.inputs) if (i.item === item) net += i.ratePerMin;
       for (const o of line.outputs) if (o.item === item) net -= o.ratePerMin;
+    }
+    for (const gl of generatorLines) {
+      if (gl.fuelItem === item) net += gl.fuelRatePerMin;
+      if (gl.byproductItem === item) net -= gl.byproductRatePerMin;
     }
     consumptionByItem.set(item, Math.max(0, net));
   }
@@ -226,8 +414,11 @@ export function solveFactory(
   return {
     status: 'optimal',
     lines,
+    generatorLines,
     totalMachines,
     totalPowerKW,
+    totalPowerProducedKW,
+    totalShards,
     buildingsByType: [...buildingsByType.entries()].map(([building, machines]) => ({ building, machines })),
     outputs,
     consumedInputs,
@@ -252,8 +443,11 @@ function emptyPlan(status: FactoryPlan['status'], message?: string): FactoryPlan
     status,
     message,
     lines: [],
+    generatorLines: [],
     totalMachines: 0,
     totalPowerKW: 0,
+    totalPowerProducedKW: 0,
+    totalShards: 0,
     buildingsByType: [],
     outputs: [],
     consumedInputs: [],

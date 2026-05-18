@@ -19,6 +19,14 @@ export interface CalcInputs {
    *  by transmuting auto-supplied raws. Setting this to `true`/`false`
    *  overrides the derived default (for advanced "partial caps + autofill"). */
   autoSupplyRaw?: boolean;
+  /** Power Shard budget for overclocking. 0 / undefined → all machines run at
+   *  100% clock. >0 → solver may put machines on 150/200/250% clock tiers,
+   *  costing 1/2/3 shards per machine, up to this many total shards. */
+  shardBudget?: number;
+  /** When true, the LP plans power production end-to-end: generators are
+   *  candidate machines, fuel + byproduct flows enter the regular item
+   *  balance, and the constraint is that produced power ≥ consumed power. */
+  includePowerProduction?: boolean;
 }
 
 /** Effective auto-supply for the current inputs. Pure function of the two

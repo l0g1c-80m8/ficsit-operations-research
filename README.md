@@ -324,6 +324,7 @@ The script prints an ANSI-colored, ASCII-tabled summary:
 | `--alts` | Allow alternate recipes |
 | `--strict` | Force-disable auto-supply (every raw must be specified) |
 | `--auto-raw` | Force auto-supply ON even when `--supply` is given (advanced) |
+| `--shards N` | Power Shard budget for overclocking; >0 lets the solver run recipes at 150/200/250 % clock |
 | `--top N` | Truncate recipe-line dump to top N by machine count |
 | `--list KIND` | List `recipes` (default), `items`, or `buildings` |
 | `-i, --interactive` | Prompt-driven mode |

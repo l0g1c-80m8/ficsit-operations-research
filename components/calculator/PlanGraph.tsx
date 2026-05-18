@@ -10,6 +10,7 @@ import type { FactoryPlan } from '@/lib/solver/factory-solver';
 import { buildProductionGraph, type GraphNode, type GraphEdge, type ProductionGraph } from '@/lib/solver/graph';
 import { graphToDOT, graphToJSON, download } from '@/lib/solver/graph-export';
 import { assetPath } from '@/lib/utils/paths';
+import { DEFAULT_PNG_WIDTH, rasterizeSvgToPng } from '@/lib/utils/svg-export';
 import { Code2, Download, FileJson, ImageDown, Maximize2, Minimize2 } from 'lucide-react';
 
 interface LaidOutNode extends GraphNode {
@@ -268,42 +269,22 @@ function clip(s: string, n: number) {
 
 async function exportSVG(svg: SVGSVGElement | null) {
   if (!svg) return;
-  const standalone = await standaloneSVG(svg);
-  download(standalone, `ficsit-plan-${Date.now()}.svg`, 'image/svg+xml');
+  const { text } = await standaloneSVG(svg);
+  download(text, `ficsit-plan-${Date.now()}.svg`, 'image/svg+xml');
 }
 
 async function exportPNG(svg: SVGSVGElement | null) {
   if (!svg) return;
-  const standalone = await standaloneSVG(svg);
-  const blob = new Blob([standalone], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = (e) => reject(e);
-      img.src = url;
-    });
-    const scale = 2;
-    const canvas = document.createElement('canvas');
-    canvas.width = (svg.viewBox.baseVal.width || svg.clientWidth) * scale;
-    canvas.height = (svg.viewBox.baseVal.height || svg.clientHeight) * scale;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#0d1117';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob((b) => {
-      if (b) download(b, `ficsit-plan-${Date.now()}.png`, 'image/png');
-    }, 'image/png');
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  const { text, aspect } = await standaloneSVG(svg);
+  const blob = await rasterizeSvgToPng(text, { aspect, background: '#0d1117' });
+  download(blob, `ficsit-plan-${Date.now()}.png`, 'image/png');
 }
 
-/** Clones the rendered SVG and inlines every <image> href as a base64 data URI so
- * the export is self-contained and renders in any viewer (including Inkscape). */
-async function standaloneSVG(svg: SVGSVGElement): Promise<string> {
+/** Clones the rendered SVG, inlines every <image> href as a base64 data URI
+ *  so the export is self-contained and renders in any viewer (including
+ *  Inkscape), and pins width/height to `DEFAULT_PNG_WIDTH` (preserving the
+ *  viewBox aspect ratio) so SVG viewers default to a high render size. */
+async function standaloneSVG(svg: SVGSVGElement): Promise<{ text: string; aspect: number }> {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
@@ -333,7 +314,13 @@ async function standaloneSVG(svg: SVGSVGElement): Promise<string> {
       img.setAttribute('href', data);
     }),
   );
-  return new XMLSerializer().serializeToString(clone);
+
+  const vbW = svg.viewBox.baseVal.width || svg.clientWidth || 1;
+  const vbH = svg.viewBox.baseVal.height || svg.clientHeight || 1;
+  const aspect = vbH / vbW;
+  clone.setAttribute('width', String(DEFAULT_PNG_WIDTH));
+  clone.setAttribute('height', String(Math.round(DEFAULT_PNG_WIDTH * aspect)));
+  return { text: new XMLSerializer().serializeToString(clone), aspect };
 }
 
 async function urlToDataURI(url: string): Promise<string> {

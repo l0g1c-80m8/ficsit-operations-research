@@ -19,6 +19,7 @@ import { CATEGORY_META, type CategoryMeta, type CategoryShape } from '@/lib/save
 import { actorOnFloor, detectFloors, type DetectedFloor } from '@/lib/save/floors';
 import { buildProximityEdges } from '@/lib/save/network';
 import { download } from '@/lib/solver/graph-export';
+import { DEFAULT_PNG_WIDTH, rasterizeSvgToPng } from '@/lib/utils/svg-export';
 
 /** Approximate Satisfactory play-area bounds in UE world units (1 unit = 1 cm).
  *  Used to anchor the procedural terrain blobs across the in-game playable
@@ -300,7 +301,7 @@ export function Topograph({
             <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary, worldBox)} title="Download as SVG">
               <Download className="h-3.5 w-3.5" /> SVG
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox)} title="Download as PNG (2× resolution)">
+            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox)} title="Download as PNG (≈ 8 K wide, high-quality smoothing)">
               <ImageDown className="h-3.5 w-3.5" /> PNG
             </Button>
             <span className="mx-1 h-5 w-px bg-ficsit-border" />
@@ -1093,52 +1094,30 @@ function safeFilename(summary: ParsedSaveSummary): string {
 }
 
 /** Clone the live SVG and replace its viewBox with the full world bounds so
- *  the exported file always shows everything (regardless of current zoom). */
-function buildStandaloneSVG(live: SVGSVGElement, worldBox: ViewBox): string {
+ *  the exported file always shows everything (regardless of current zoom).
+ *  The width hint is set to `DEFAULT_PNG_WIDTH` so viewers that don't auto-
+ *  scale (e.g. some browsers loading the .svg directly) still render at a
+ *  high default size. */
+function buildStandaloneSVG(live: SVGSVGElement, worldBox: ViewBox): { text: string; aspect: number } {
   const clone = live.cloneNode(true) as SVGSVGElement;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
   clone.setAttribute('viewBox', `${worldBox.x} ${worldBox.y} ${worldBox.w} ${worldBox.h}`);
   const aspect = worldBox.h / Math.max(worldBox.w, 1);
-  const exportW = 2400;
-  clone.setAttribute('width', String(exportW));
-  clone.setAttribute('height', String(Math.round(exportW * aspect)));
-  return new XMLSerializer().serializeToString(clone);
+  clone.setAttribute('width', String(DEFAULT_PNG_WIDTH));
+  clone.setAttribute('height', String(Math.round(DEFAULT_PNG_WIDTH * aspect)));
+  return { text: new XMLSerializer().serializeToString(clone), aspect };
 }
 
 function exportSVG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox) {
   if (!svg) return;
-  download(buildStandaloneSVG(svg, worldBox), `${safeFilename(summary)}.svg`, 'image/svg+xml');
+  const { text } = buildStandaloneSVG(svg, worldBox);
+  download(text, `${safeFilename(summary)}.svg`, 'image/svg+xml');
 }
 
 async function exportPNG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox) {
   if (!svg) return;
-  const text = buildStandaloneSVG(svg, worldBox);
-  const blob = new Blob([text], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = (e) => reject(e);
-      img.src = url;
-    });
-    const aspect = worldBox.h / Math.max(worldBox.w, 1);
-    const scale = 2;
-    const baseW = 2400;
-    const canvas = document.createElement('canvas');
-    canvas.width = baseW * scale;
-    canvas.height = Math.round(baseW * aspect * scale);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas 2D context unavailable');
-    ctx.fillStyle = '#0d1117';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob((b) => {
-      if (b) download(b, `${safeFilename(summary)}.png`, 'image/png');
-    }, 'image/png');
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  const { text, aspect } = buildStandaloneSVG(svg, worldBox);
+  const blob = await rasterizeSvgToPng(text, { aspect, background: '#0d1117' });
+  download(blob, `${safeFilename(summary)}.png`, 'image/png');
 }

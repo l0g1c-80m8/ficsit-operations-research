@@ -15,8 +15,9 @@ import {
 } from 'lucide-react';
 import { cn, fmt } from '@/lib/utils';
 import type { ParsedSaveSummary, PlacedActor, SaveCategory } from '@/lib/save/types';
-import { CATEGORY_META } from '@/lib/save/categorize';
+import { CATEGORY_META, type CategoryMeta, type CategoryShape } from '@/lib/save/categorize';
 import { actorOnFloor, detectFloors, type DetectedFloor } from '@/lib/save/floors';
+import { buildProximityEdges } from '@/lib/save/network';
 import { download } from '@/lib/solver/graph-export';
 
 /** Approximate Satisfactory play-area bounds in UE world units (1 unit = 1 cm).
@@ -351,6 +352,7 @@ export function Topograph({
                 key={cat}
                 category={cat}
                 actors={grouped.get(cat) ?? []}
+                viewBoxW={viewBox.w}
                 highlightClasses={highlightClasses}
               />
             ))}
@@ -873,7 +875,7 @@ function SideElevation({
   );
 }
 
-function LayerShapeBadge({ color, shape, on }: { color: string; shape: 'rect' | 'dot' | 'triangle' | 'line'; on: boolean }) {
+function LayerShapeBadge({ color, shape, on }: { color: string; shape: CategoryShape; on: boolean }) {
   const fill = on ? color : '#3d444d';
   return (
     <svg viewBox="-1 -1 2 2" width={12} height={12} className="shrink-0">
@@ -881,6 +883,13 @@ function LayerShapeBadge({ color, shape, on }: { color: string; shape: 'rect' | 
       {shape === 'rect' && <rect x={-0.85} y={-0.85} width={1.7} height={1.7} fill={fill} rx={0.2} />}
       {shape === 'triangle' && <polygon points="0,-0.85 0.7,0.6 -0.7,0.6" fill={fill} />}
       {shape === 'line' && <rect x={-0.9} y={-0.2} width={1.8} height={0.4} fill={fill} />}
+      {shape === 'network' && (
+        <>
+          <line x1={-0.85} y1={-0.5} x2={0.85} y2={0.5} stroke={fill} strokeWidth={0.35} strokeLinecap="round" />
+          <circle cx={-0.85} cy={-0.5} r={0.25} fill={fill} />
+          <circle cx={0.85} cy={0.5} r={0.25} fill={fill} />
+        </>
+      )}
     </svg>
   );
 }
@@ -888,14 +897,27 @@ function LayerShapeBadge({ color, shape, on }: { color: string; shape: 'rect' | 
 function Layer({
   category,
   actors,
+  viewBoxW,
   highlightClasses,
 }: {
   category: SaveCategory;
   actors: PlacedActor[];
+  viewBoxW: number;
   highlightClasses?: Set<string>;
 }) {
   const meta = CATEGORY_META[category];
   if (actors.length === 0) return null;
+
+  if (meta.shape === 'network') {
+    return (
+      <NetworkLayer
+        actors={actors}
+        meta={meta}
+        viewBoxW={viewBoxW}
+        highlightClasses={highlightClasses}
+      />
+    );
+  }
 
   if (meta.shape === 'dot') {
     const r = meta.size / 2;
@@ -932,6 +954,60 @@ function Layer({
     </g>
   );
 }
+
+/** Render a linear-infrastructure category (belts, pipes, hypertubes, rails,
+ *  power lines) as inferred edges between same-category nodes.
+ *
+ *  The save format doesn't carry connection topology in a form we read; we
+ *  approximate it via spatial proximity. For each actor we connect to up to
+ *  two of its same-category nearest neighbours within `meta.networkMaxDist`,
+ *  enough to capture long straight runs plus the occasional branch at a
+ *  splitter/junction. Isolated actors still render as a tiny dot so they
+ *  don't disappear. The whole thing is collapsed into one `<path>` so 10 k+
+ *  belt poles don't drown the DOM. */
+function NetworkLayer({
+  actors,
+  meta,
+  viewBoxW,
+  highlightClasses,
+}: {
+  actors: PlacedActor[];
+  meta: CategoryMeta;
+  viewBoxW: number;
+  highlightClasses?: Set<string>;
+}) {
+  const maxDist = meta.networkMaxDist ?? 1000;
+  const edges = useMemo(() => buildProximityEdges(actors, maxDist, 2), [actors, maxDist]);
+  // Stroke width scales with the current viewBox so lines stay ≈ 1.5 px
+  // wide on screen at any zoom level (≈ 0.0014 × view-box-width / scale).
+  const strokeWidth = Math.max(viewBoxW * 0.0014, 30);
+  const edgePath = edges.length === 0 ? '' : edges.map((e) => `M${e.ax},${e.ay}L${e.bx},${e.by}`).join('');
+  // Tiny dots at every node so an isolated actor (no neighbour within
+  // threshold) still reads — about half the previous dot radius.
+  const nodeRadius = Math.max(meta.size * 0.25, viewBoxW * 0.0006);
+  const nodePath = actors
+    .map((a) => `M${a.x},${a.y}m -${nodeRadius},0 a ${nodeRadius},${nodeRadius} 0 1,0 ${2 * nodeRadius},0 a ${nodeRadius},${nodeRadius} 0 1,0 -${2 * nodeRadius},0`)
+    .join(' ');
+  return (
+    <g>
+      {edgePath && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke={meta.color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          opacity={meta.opacity}
+        />
+      )}
+      <path d={nodePath} fill={meta.color} opacity={meta.opacity} />
+      {highlightClasses && highlightClasses.size > 0 && (
+        <HighlightDots actors={actors} highlightClasses={highlightClasses} />
+      )}
+    </g>
+  );
+}
+
 
 function HighlightDots({
   actors,

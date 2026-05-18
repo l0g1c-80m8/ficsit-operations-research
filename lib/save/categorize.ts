@@ -51,10 +51,24 @@ export function categorize(typePath: string): SaveCategory {
   return 'misc';
 }
 
-export const CATEGORY_META: Record<
-  SaveCategory,
-  { label: string; color: string; shape: 'rect' | 'dot' | 'triangle' | 'line'; size: number; opacity: number; order: number }
-> = {
+export type CategoryShape = 'rect' | 'dot' | 'triangle' | 'line' | 'network';
+
+export interface CategoryMeta {
+  label: string;
+  color: string;
+  shape: CategoryShape;
+  size: number;
+  opacity: number;
+  order: number;
+  /** For `shape: 'network'`, the max world-unit distance allowed between two
+   *  same-category actors to draw an edge between them (1-NN spanning + a few
+   *  branch hops). Roughly the typical placement gap for that infrastructure
+   *  in-game; over-large values introduce zig-zags across unconnected runs.
+   *  Ignored for other shapes. */
+  networkMaxDist?: number;
+}
+
+export const CATEGORY_META: Record<SaveCategory, CategoryMeta> = {
   // Order = render z-order. Big translucent layers (foundations) render first
   // and sit at the bottom; small dots paint last on top.
   //
@@ -65,11 +79,11 @@ export const CATEGORY_META: Record<
   // chosen to avoid the previous "three blues / three yellows / three pinks /
   // three slates" clustering. Verified visually on the #0d1117 map background.
   foundation:    { label: 'Foundations & structural', color: '#4b5563', shape: 'rect',     size: 800, opacity: 0.45, order: 0  }, // slate-600 — large translucent backdrop
-  rail:          { label: 'Rail infrastructure',      color: '#6366f1', shape: 'dot',      size: 220, opacity: 0.85, order: 1  }, // indigo-500
-  conveyor:      { label: 'Conveyors',                color: '#3b82f6', shape: 'dot',      size: 120, opacity: 0.85, order: 2  }, // blue-500
-  pipeline:      { label: 'Pipelines',                color: '#0e7490', shape: 'dot',      size: 130, opacity: 0.9,  order: 3  }, // cyan-700 dark, distinct from conveyor blue
-  hypertube:     { label: 'Hypertubes',               color: '#d946ef', shape: 'dot',      size: 150, opacity: 0.95, order: 3  }, // fuchsia — vivid + away from cyan/blue so it doesn't get mistaken for a pipe
-  power_grid:    { label: 'Power grid',               color: '#fbbf24', shape: 'dot',      size: 140, opacity: 0.95, order: 4  }, // amber-400 (saturated yellow)
+  rail:          { label: 'Rail infrastructure',      color: '#6366f1', shape: 'network',  size: 220, opacity: 0.85, order: 1,  networkMaxDist: 3500 }, // indigo-500; rail segments are large
+  conveyor:      { label: 'Conveyors',                color: '#3b82f6', shape: 'network',  size: 120, opacity: 0.85, order: 2,  networkMaxDist: 1200 }, // blue-500; ~12 m between belt actors
+  pipeline:      { label: 'Pipelines',                color: '#0e7490', shape: 'network',  size: 130, opacity: 0.9,  order: 3,  networkMaxDist: 1200 }, // cyan-700 dark
+  hypertube:     { label: 'Hypertubes',               color: '#d946ef', shape: 'network',  size: 150, opacity: 0.95, order: 3,  networkMaxDist: 1600 }, // fuchsia — hypertube straights can be a touch longer
+  power_grid:    { label: 'Power grid',               color: '#fbbf24', shape: 'network',  size: 140, opacity: 0.95, order: 4,  networkMaxDist: 6000 }, // amber-400; power lines span much further
   fluid_storage: { label: 'Fluid storage',            color: '#22d3ee', shape: 'rect',     size: 420, opacity: 0.95, order: 5  }, // cyan-400 bright — lets fluid tanks pop against pipeline dark cyan
   item_storage:  { label: 'Item storage',             color: '#a855f7', shape: 'rect',     size: 400, opacity: 0.95, order: 6  }, // purple-500
   power_storage: { label: 'Power storage',            color: '#a16207', shape: 'rect',     size: 460, opacity: 0.95, order: 7  }, // yellow-700 (mustard) — distinct from yellow grid + orange production

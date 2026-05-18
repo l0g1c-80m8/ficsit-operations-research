@@ -30,16 +30,25 @@ export function SaveStats({ summary }: { summary: ParsedSaveSummary }) {
     // Aggregate building counts. Save actors carry the *buildable* class
     // (`Build_*_C`), so we keep that as the key (categorize() expects it), but
     // look up the descriptor form (`Desc_*_C`) in the game data.
+    //
+    // The parser truncates `classCounts` to the top 50 classes by count, so
+    // anything rare (e.g. a handful of Alien Power Augmenters) falls into
+    // the second-pass `summary.actors` walk. Critically, we must dedupe
+    // against *classes-already-credited-from-classCounts*, NOT against
+    // entries already in `buildingByClass`. The earlier code did the latter,
+    // which silently capped every long-tail class at 1: the first actor
+    // added it to the map, every subsequent actor hit `has(cls) → continue`.
     const buildingByClass = new Map<string, number>();
+    const creditedFromHistogram = new Set<string>();
     for (const row of summary.classCounts) {
       if (data.buildings[buildableToDescriptor(row.className)]) {
         buildingByClass.set(row.className, (buildingByClass.get(row.className) ?? 0) + row.count);
+        creditedFromHistogram.add(row.className);
       }
     }
-    // Walk the actor list for classes that fell off the top-50 histogram.
     for (const a of summary.actors) {
       const cls = a.className;
-      if (buildingByClass.has(cls)) continue;
+      if (creditedFromHistogram.has(cls)) continue; // already counted via classCounts
       if (data.buildings[buildableToDescriptor(cls)]) {
         buildingByClass.set(cls, (buildingByClass.get(cls) ?? 0) + 1);
       }

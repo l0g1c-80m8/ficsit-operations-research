@@ -43,6 +43,7 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
     power_storage: 0,
     conveyor: 0,
     pipeline: 0,
+    hypertube: 0,
     fluid_storage: 0,
     item_storage: 0,
     rail: 0,

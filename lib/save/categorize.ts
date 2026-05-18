@@ -18,8 +18,11 @@ const CATEGORY_PATTERNS: { pattern: RegExp; category: SaveCategory }[] = [
   { pattern: /Build_(Manufacturer|Constructor|Smelter|Foundry|OilRefinery|Refinery|Blender|Packager|HadronCollider|Converter|QuantumEncoder|Assembler)/i, category: 'production' },
   // Conveyor network (belts, lifts, splitters, mergers, poles).
   { pattern: /Build_(ConveyorBelt|ConveyorLift|ConveyorAttachment|ConveyorCeilingAttachment|Splitter|Merger|ConveyorPole)/i, category: 'conveyor' },
+  // Hypertubes — player transit. Matched *before* `pipeline` so the
+  // `PipeHyper*` classes don't get swallowed by the fluid-pipe bucket.
+  { pattern: /Build_(PipeHyper|HyperTube)/i, category: 'hypertube' },
   // Pipeline network (pipes, pumps, valves, junctions, supports, flow meters).
-  { pattern: /Build_(Pipeline|Valve|PipeHyper)/i, category: 'pipeline' },
+  { pattern: /Build_(Pipeline|Valve)/i, category: 'pipeline' },
   // Power transmission grid.
   { pattern: /Build_(PowerLine|PowerPole|PowerSwitch|PriorityPowerSwitch|PowerTower)/i, category: 'power_grid' },
   // Item storage (containers, dimensional depot, central storage).
@@ -65,6 +68,7 @@ export const CATEGORY_META: Record<
   rail:          { label: 'Rail infrastructure',      color: '#6366f1', shape: 'dot',      size: 220, opacity: 0.85, order: 1  }, // indigo-500
   conveyor:      { label: 'Conveyors',                color: '#3b82f6', shape: 'dot',      size: 120, opacity: 0.85, order: 2  }, // blue-500
   pipeline:      { label: 'Pipelines',                color: '#0e7490', shape: 'dot',      size: 130, opacity: 0.9,  order: 3  }, // cyan-700 dark, distinct from conveyor blue
+  hypertube:     { label: 'Hypertubes',               color: '#d946ef', shape: 'dot',      size: 150, opacity: 0.95, order: 3  }, // fuchsia — vivid + away from cyan/blue so it doesn't get mistaken for a pipe
   power_grid:    { label: 'Power grid',               color: '#fbbf24', shape: 'dot',      size: 140, opacity: 0.95, order: 4  }, // amber-400 (saturated yellow)
   fluid_storage: { label: 'Fluid storage',            color: '#22d3ee', shape: 'rect',     size: 420, opacity: 0.95, order: 5  }, // cyan-400 bright — lets fluid tanks pop against pipeline dark cyan
   item_storage:  { label: 'Item storage',             color: '#a855f7', shape: 'rect',     size: 400, opacity: 0.95, order: 6  }, // purple-500

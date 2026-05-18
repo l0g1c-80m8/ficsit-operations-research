@@ -58,6 +58,7 @@ export function Topograph({
       power_storage: true,
       conveyor: true,
       pipeline: true,
+      hypertube: true,
       fluid_storage: true,
       item_storage: true,
       rail: true,

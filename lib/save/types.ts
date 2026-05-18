@@ -23,6 +23,7 @@ export type SaveCategory =
   | 'power_storage'   // power storage units + Alien Power Augmenter
   | 'conveyor'        // belts, lifts, splitters, mergers, conveyor poles
   | 'pipeline'        // pipes, pumps, valves, junctions, supports, flow meters
+  | 'hypertube'       // hypertube segments, entrances, boosters — player transit
   | 'fluid_storage'   // fluid buffers, pipe storage tanks
   | 'item_storage'    // storage containers, dimensional depot, central storage
   | 'rail'            // rail track, stations, freight platforms, signals

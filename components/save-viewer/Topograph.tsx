@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import {
@@ -303,6 +304,38 @@ export function Topograph({
     count: legendCounts[c] ?? 0,
   }));
 
+  // Serialize the export at the *full* world extent regardless of current zoom.
+  // Grid and network stroke widths are tied to the on-screen viewBox, so a
+  // zoomed-in view would otherwise export hair-thin, washed-out lines. We
+  // flushSync the live SVG to worldBox, serialize, then restore — all inside
+  // one event task, so the browser never repaints the intermediate state.
+  const buildExportText = (): { text: string; aspect: number } | null => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const prev = viewBox;
+    const atFull =
+      prev.x === worldBox.x && prev.y === worldBox.y && prev.w === worldBox.w && prev.h === worldBox.h;
+    if (!atFull) flushSync(() => setViewBox(worldBox));
+    try {
+      const { title, subtitle } = deriveExportTitle(summary, worldBox);
+      return buildStandaloneSVG(svgRef.current!, worldBox, { legend: legendRows, title, subtitle });
+    } finally {
+      if (!atFull) flushSync(() => setViewBox(prev));
+    }
+  };
+
+  const onExportSVG = () => {
+    const built = buildExportText();
+    if (built) download(built.text, `${safeFilename(summary)}.svg`, 'image/svg+xml');
+  };
+
+  const onExportPNG = async () => {
+    const built = buildExportText();
+    if (!built) return;
+    const blob = await rasterizeSvgToPng(built.text, { aspect: built.aspect, background: EXPORT_BG });
+    download(blob, `${safeFilename(summary)}.png`, 'image/png');
+  };
+
   return (
     <Card className={cn('min-w-0', fullscreen && 'fixed inset-4 z-50 flex flex-col overflow-hidden')}>
       <CardHeader
@@ -310,10 +343,10 @@ export function Topograph({
         subtitle={`${fmt(summary.actors.length)} actors · ${fmt(worldBox.w / 100, 0)}m × ${fmt(worldBox.h / 100, 0)}m footprint`}
         right={
           <div className="flex items-center gap-1">
-            <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary, worldBox, legendRows)} title="Download as SVG — titled, with a legend band">
+            <Button variant="secondary" size="sm" onClick={onExportSVG} title="Download as SVG — full map, titled, with a legend band">
               <Download className="h-3.5 w-3.5" /> SVG
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox, legendRows)} title="Download as PNG (≈ 12 K wide) — titled, with a legend band">
+            <Button variant="secondary" size="sm" onClick={onExportPNG} title="Download as PNG (≈ 12 K wide) — full map, titled, with a legend band">
               <ImageDown className="h-3.5 w-3.5" /> PNG
             </Button>
             <span className="mx-1 h-5 w-px bg-ficsit-border" />
@@ -783,7 +816,15 @@ function LevelChip({
 /** X-Z elevation projection looking south: east is right, world up is up.
  *  Mirrors the main map's X range so it auto-follows pan/zoom horizontally.
  *  Vertical axis is auto-fit to actor Z range, NOT scaled to match X — it's
- *  an elevation view, not an isometric one. Click a floor band to slice. */
+ *  an elevation view, not an isometric one.
+ *
+ *  The chart geometry (level lanes + actor scatter) is drawn in the SVG with
+ *  `preserveAspectRatio="none"` (which stretches to fill), but all text lives
+ *  in a crisp HTML overlay positioned by vertical fraction — SVG `<text>` under
+ *  a non-uniform scale renders badly stretched. Click a lane (or its label) to
+ *  slice the map to that elevation. */
+const SIDE_ELEVATION_H = 208; // px
+
 function SideElevation({
   actors,
   xMin,
@@ -806,105 +847,121 @@ function SideElevation({
   // SVG y grows downward, so we map world Z → -Z and let the viewBox flip.
   const w = Math.max(1, xMax - xMin);
   const h = Math.max(1, zMax - zMin);
-  // Dot radius in world units; chosen so a typical 4 m floor band reads cleanly.
+  // Dot radius in world units; chosen so a typical band reads cleanly.
   const dotR = Math.max(80, w * 0.0008);
 
-  const handleClick = (e: React.MouseEvent<SVGSVGElement>) => {
-    const target = e.target as SVGElement;
-    const bandIdx = target.dataset?.levelIdx ? Number(target.dataset.levelIdx) : NaN;
-    if (Number.isFinite(bandIdx)) {
-      onSelect(selected === bandIdx ? null : bandIdx);
-    } else {
-      onSelect(null);
+  // Total actors per level (foundations + everything sitting on them). Shown in
+  // the lane label so each elevation's "weight" is legible at a glance.
+  const perLevelCount = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const a of actors) {
+      for (const l of levels) {
+        if (a.z >= l.zMin && a.z < l.zMax) {
+          m.set(l.idx, (m.get(l.idx) ?? 0) + 1);
+          break;
+        }
+      }
     }
-  };
+    return m;
+  }, [actors, levels]);
+
+  // Fraction from the top of the view for a world Z (0 = top, 1 = bottom).
+  const topFrac = (z: number) => (zMax - z) / (zMax - zMin);
+  const toggle = (idx: number) => onSelect(selected === idx ? null : idx);
 
   return (
     <div className="rounded-md border border-ficsit-border bg-ficsit-bg">
       <div className="flex items-center justify-between border-b border-ficsit-border px-2 py-1 text-[10px] text-ficsit-subtle">
         <span>
-          <strong className="text-ficsit-text">Elevation</strong> · looking south (X-Z) · click a level band to slice
+          <strong className="text-ficsit-text">Elevation</strong> · looking south (X-Z) · click a level to slice
         </span>
         <span>
-          {fmt((zMax - zMin) / 100, 1)} m vertical · {fmt((xMax - xMin) / 100, 0)} m of current view
+          {fmt((zMax - zMin) / 100, 1)} m vertical · {levels.length} level{levels.length === 1 ? '' : 's'} · {fmt((xMax - xMin) / 100, 0)} m of current view
         </span>
       </div>
-      <svg
-        viewBox={`${xMin} ${-zMax} ${w} ${h}`}
-        width="100%"
-        height={160}
-        preserveAspectRatio="none"
-        xmlns="http://www.w3.org/2000/svg"
-        onClick={handleClick}
-        style={{ cursor: 'pointer', display: 'block' }}
-      >
-        <rect x={xMin} y={-zMax} width={w} height={h} fill="#0d1117" />
+      <div className="relative" style={{ height: SIDE_ELEVATION_H }}>
+        <svg
+          viewBox={`${xMin} ${-zMax} ${w} ${h}`}
+          width="100%"
+          height={SIDE_ELEVATION_H}
+          preserveAspectRatio="none"
+          xmlns="http://www.w3.org/2000/svg"
+          onClick={() => onSelect(null)}
+          style={{ position: 'absolute', inset: 0, cursor: 'pointer', display: 'block' }}
+        >
+          <rect x={xMin} y={-zMax} width={w} height={h} fill="#0d1117" />
 
-        {/* Elevation bands. Inactive bands paint a subtle stripe; active band
-            gets a colored fill + accent outline. Each band has a data-level-idx
-            so clicks resolve cleanly without coordinate math. */}
-        {levels.map((l) => {
-          const active = selected === l.idx;
-          const bandH = l.zMax - l.zMin;
-          return (
-            <g key={l.idx}>
+          {/* Level lanes: alternating shade for legibility; the selected lane
+              gets an accent wash + outline. Actor dots (below) sit on top. */}
+          {levels.map((l) => {
+            const active = selected === l.idx;
+            const bandH = l.zMax - l.zMin;
+            return (
               <rect
-                data-level-idx={l.idx}
+                key={l.idx}
                 x={xMin}
                 y={-l.zMax}
                 width={w}
                 height={bandH}
-                fill={active ? '#facc1522' : '#1f2937'}
+                fill={active ? '#facc151f' : l.idx % 2 === 0 ? '#161d2b' : '#1b2537'}
                 stroke={active ? '#facc15' : 'transparent'}
-                strokeWidth={Math.max(20, w * 0.0004)}
+                strokeWidth={Math.max(20, w * 0.0006)}
               />
-              <line
-                x1={xMin}
-                x2={xMin + w}
-                y1={-l.z}
-                y2={-l.z}
-                stroke={active ? '#facc15' : '#475569'}
-                strokeWidth={Math.max(10, w * 0.0002)}
-                strokeDasharray={active ? undefined : `${w * 0.004} ${w * 0.004}`}
-              />
-              <text
-                x={xMin + w * 0.005}
-                y={-l.z - bandH * 0.5}
-                fill={active ? '#facc15' : '#94a3b8'}
-                fontSize={h * 0.08}
-                fontFamily="monospace"
-                style={{ pointerEvents: 'none' }}
-              >
-                L{l.idx} · {fmt(l.zMin / 100, 0)} m
-              </text>
-            </g>
-          );
-        })}
+            );
+          })}
 
-        {/* Actor dots, painted on top of the bands. We collapse every category
-            to a dot here — the side view is for vertical sense-making, not
-            shape identification (the top view handles that). */}
-        {ORDERED_CATEGORIES.map((cat) => {
-          const meta = CATEGORY_META[cat];
-          const matches = actors.filter(
-            (a) => a.category === cat && a.x >= xMin && a.x <= xMax,
-          );
-          if (matches.length === 0) return null;
-          const r = cat === 'foundation' ? dotR * 0.6 : dotR;
-          const d = matches
-            .map((a) => `M${a.x},${-a.z}m -${r},0 a ${r},${r} 0 1,0 ${2 * r},0 a ${r},${r} 0 1,0 -${2 * r},0`)
-            .join(' ');
-          return (
-            <path
-              key={cat}
-              d={d}
-              fill={meta.color}
-              opacity={cat === 'foundation' ? 0.35 : meta.opacity * 0.9}
-              style={{ pointerEvents: 'none' }}
-            />
-          );
-        })}
-      </svg>
+          {/* Actor scatter, one collapsed path per category. The side view is
+              for vertical sense-making, not shape identification. */}
+          {ORDERED_CATEGORIES.map((cat) => {
+            const meta = CATEGORY_META[cat];
+            const matches = actors.filter((a) => a.category === cat && a.x >= xMin && a.x <= xMax);
+            if (matches.length === 0) return null;
+            const r = cat === 'foundation' ? dotR * 0.55 : dotR;
+            const d = matches
+              .map((a) => `M${a.x},${-a.z}m -${r},0 a ${r},${r} 0 1,0 ${2 * r},0 a ${r},${r} 0 1,0 -${2 * r},0`)
+              .join(' ');
+            return (
+              <path
+                key={cat}
+                d={d}
+                fill={meta.color}
+                opacity={cat === 'foundation' ? 0.3 : Math.min(1, meta.opacity * 0.95)}
+                style={{ pointerEvents: 'none' }}
+              />
+            );
+          })}
+        </svg>
+
+        {/* Crisp HTML overlay: elevation axis + clickable level labels. */}
+        <div className="pointer-events-none absolute inset-0 font-mono text-[10px]">
+          <span className="absolute left-1 top-0.5 text-ficsit-subtle">{fmt(zMax / 100, 0)} m</span>
+          <span className="absolute bottom-0.5 left-1 text-ficsit-subtle">{fmt(zMin / 100, 0)} m</span>
+          {levels.map((l) => {
+            const active = selected === l.idx;
+            return (
+              <button
+                key={l.idx}
+                type="button"
+                onClick={() => toggle(l.idx)}
+                title={`Level ${l.idx} · ${fmt(l.zMin / 100, 0)}–${fmt(l.zMax / 100, 0)} m · ${fmt(perLevelCount.get(l.idx) ?? 0)} actors`}
+                className={cn(
+                  'pointer-events-auto absolute right-1 flex -translate-y-1/2 items-center gap-1 rounded border px-1.5 py-0.5 transition-colors',
+                  active
+                    ? 'border-ficsit-accent/70 bg-ficsit-accent/20 text-ficsit-accent'
+                    : 'border-ficsit-border/70 bg-ficsit-bg/70 text-ficsit-subtle backdrop-blur hover:bg-ficsit-panel2',
+                )}
+                style={{ top: `${topFrac(l.z) * 100}%` }}
+              >
+                <span className={cn('font-semibold', active ? 'text-ficsit-accent' : 'text-ficsit-text')}>
+                  L{l.idx}
+                </span>
+                <span>{fmt(l.zMin / 100, 0)} m</span>
+                <span className="opacity-70">· {fmt(perLevelCount.get(l.idx) ?? 0)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1307,17 +1364,3 @@ function legendSwatch(shape: CategoryShape, color: string, cx: number, cy: numbe
   }
 }
 
-function exportSVG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox, legend: LegendRow[]) {
-  if (!svg) return;
-  const { title, subtitle } = deriveExportTitle(summary, worldBox);
-  const { text } = buildStandaloneSVG(svg, worldBox, { legend, title, subtitle });
-  download(text, `${safeFilename(summary)}.svg`, 'image/svg+xml');
-}
-
-async function exportPNG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox, legend: LegendRow[]) {
-  if (!svg) return;
-  const { title, subtitle } = deriveExportTitle(summary, worldBox);
-  const { text, aspect } = buildStandaloneSVG(svg, worldBox, { legend, title, subtitle });
-  const blob = await rasterizeSvgToPng(text, { aspect, background: EXPORT_BG });
-  download(blob, `${safeFilename(summary)}.png`, 'image/png');
-}

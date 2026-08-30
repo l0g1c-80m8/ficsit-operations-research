@@ -8,7 +8,6 @@ import {
   Eye,
   EyeOff,
   ImageDown,
-  List,
   Maximize2,
   Minimize2,
   ZoomIn,
@@ -77,8 +76,6 @@ export function Topograph({
   const [fullscreen, setFullscreen] = useState(false);
   // null = all levels visible; otherwise the ElevationLevel.idx to isolate.
   const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
-  // When on, exported SVG/PNG images embed a category legend panel.
-  const [includeLegend, setIncludeLegend] = useState(false);
   // Background mode: 'grid' is the default (visible 100 m / 1 km gridlines on
   // a dark base). 'terrain' adds a procedural biome backdrop underneath the
   // grid — soft colored blobs roughly placed where Satisfactory's major
@@ -313,19 +310,10 @@ export function Topograph({
         subtitle={`${fmt(summary.actors.length)} actors · ${fmt(worldBox.w / 100, 0)}m × ${fmt(worldBox.h / 100, 0)}m footprint`}
         right={
           <div className="flex items-center gap-1">
-            <Button
-              variant={includeLegend ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => setIncludeLegend((v) => !v)}
-              title="Toggle: embed the category legend in exported SVG/PNG images"
-              aria-pressed={includeLegend}
-            >
-              <List className="h-3.5 w-3.5" /> Legend
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary, worldBox, includeLegend ? legendRows : null)} title="Download as SVG">
+            <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary, worldBox, legendRows)} title="Download as SVG — titled, with a legend band">
               <Download className="h-3.5 w-3.5" /> SVG
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox, includeLegend ? legendRows : null)} title="Download as PNG (≈ 12 K wide, 1.5× supersampled, high-quality downsample)">
+            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox, legendRows)} title="Download as PNG (≈ 12 K wide) — titled, with a legend band">
               <ImageDown className="h-3.5 w-3.5" /> PNG
             </Button>
             <span className="mx-1 h-5 w-px bg-ficsit-border" />
@@ -1112,7 +1100,10 @@ function ActorMark({
 
 /* ─────────────────── SVG / PNG export ─────────────────── */
 
-/** One category row in the exported legend panel. */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const EXPORT_BG = '#0d1117';
+
+/** One category row in the exported legend band. */
 interface LegendRow {
   label: string;
   color: string;
@@ -1125,81 +1116,171 @@ function safeFilename(summary: ParsedSaveSummary): string {
   return `ficsit-topograph-${session || 'save'}-${Date.now()}`;
 }
 
-/** Clone the live SVG and replace its viewBox with the full world bounds so
- *  the exported file always shows everything (regardless of current zoom).
- *  The width hint is set to `DEFAULT_PNG_WIDTH` so viewers that don't auto-
- *  scale (e.g. some browsers loading the .svg directly) still render at a
- *  high default size. When `legend` is supplied, a category legend panel is
- *  spliced into the top-left corner (world coords, so it scales with export). */
+/** Title + one-line stats caption stamped into the header band of an export. */
+function deriveExportTitle(summary: ParsedSaveSummary, worldBox: ViewBox): { title: string; subtitle: string } {
+  const title = summary.header?.sessionName?.trim() || 'Satisfactory Factory';
+  const hours = summary.header ? summary.header.playDurationSeconds / 3600 : 0;
+  const bits = [
+    `${fmt(summary.actorCount)} actors`,
+    `${fmt(worldBox.w / 100, 0)} m × ${fmt(worldBox.h / 100, 0)} m`,
+    `${fmt(hours, 1)} h play time`,
+  ];
+  if (summary.header?.buildVersion) bits.push(`build ${summary.header.buildVersion}`);
+  return { title, subtitle: bits.join('  ·  ') };
+}
+
+/** Clone the live SVG and rebuild it as a standalone export. The viewBox is
+ *  reset to the full world bounds (so the file always shows everything,
+ *  regardless of current zoom), then extended vertically to make room for a
+ *  title band above the map and a legend band below it — neither overlaps the
+ *  plotted actors. All band geometry is expressed in world units relative to
+ *  `worldBox.w`, so it renders at a legible, resolution-independent size. */
 function buildStandaloneSVG(
   live: SVGSVGElement,
   worldBox: ViewBox,
-  legend?: LegendRow[] | null,
+  opts: { legend?: LegendRow[] | null; title?: string | null; subtitle?: string | null } = {},
 ): { text: string; aspect: number } {
   const clone = live.cloneNode(true) as SVGSVGElement;
-  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('xmlns', SVG_NS);
   clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
-  clone.setAttribute('viewBox', `${worldBox.x} ${worldBox.y} ${worldBox.w} ${worldBox.h}`);
-  const aspect = worldBox.h / Math.max(worldBox.w, 1);
+
+  const u = worldBox.w;
+  const legend = opts.legend && opts.legend.length > 0 ? opts.legend : null;
+  const title = opts.title?.trim() ? opts.title.trim() : null;
+
+  const titleBandH = title ? u * 0.06 : 0;
+  const legendLayout = legend ? computeLegendLayout(legend.length, u) : null;
+  const legendBandH = legendLayout ? legendLayout.bandH : 0;
+
+  // Extend the world viewBox: title band sits above worldBox.y, legend below.
+  const vbX = worldBox.x;
+  const vbY = worldBox.y - titleBandH;
+  const vbW = worldBox.w;
+  const vbH = worldBox.h + titleBandH + legendBandH;
+  clone.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
+  const aspect = vbH / Math.max(vbW, 1);
   clone.setAttribute('width', String(DEFAULT_PNG_WIDTH));
   clone.setAttribute('height', String(Math.round(DEFAULT_PNG_WIDTH * aspect)));
-  let text = new XMLSerializer().serializeToString(clone);
-  if (legend && legend.length > 0) {
-    const markup = buildLegendMarkup(legend, worldBox);
-    const close = text.lastIndexOf('</svg>');
-    if (close >= 0) text = text.slice(0, close) + markup + text.slice(close);
+
+  // Opaque backdrop over the *extended* canvas so the bands aren't transparent
+  // when the raw SVG is viewed directly. Prepended → sits behind the map.
+  if (titleBandH > 0 || legendBandH > 0) {
+    const bg = document.createElementNS(SVG_NS, 'rect');
+    bg.setAttribute('x', String(Math.round(vbX)));
+    bg.setAttribute('y', String(Math.round(vbY)));
+    bg.setAttribute('width', String(Math.round(vbW)));
+    bg.setAttribute('height', String(Math.round(vbH)));
+    bg.setAttribute('fill', EXPORT_BG);
+    clone.insertBefore(bg, clone.firstChild);
   }
-  return { text, aspect };
+
+  if (title) appendMarkup(clone, buildTitleMarkup(title, opts.subtitle ?? '', worldBox, titleBandH));
+  if (legend && legendLayout) appendMarkup(clone, buildLegendBandMarkup(legend, worldBox, legendLayout));
+
+  return { text: new XMLSerializer().serializeToString(clone), aspect };
+}
+
+/** Wrap a raw-SVG-markup string in a `<g>` and append it to the clone. Setting
+ *  `innerHTML` on an SVG element parses its children in the SVG namespace. */
+function appendMarkup(root: SVGSVGElement, markup: string): void {
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.innerHTML = markup;
+  root.appendChild(g);
 }
 
 /** Escape a label for inclusion in raw SVG/XML text. */
 function xmlEscape(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Build a legend `<g>` (raw SVG markup) sized in world units relative to
- *  `worldBox.w`, so it renders at a legible size regardless of the export
- *  resolution. Anchored to the top-left of the world bounds. */
-function buildLegendMarkup(rows: LegendRow[], worldBox: ViewBox): string {
+/** Header band: a bold title with a muted one-line caption underneath, plus a
+ *  hairline rule separating it from the map. Anchored above `worldBox.y`. */
+function buildTitleMarkup(title: string, subtitle: string, worldBox: ViewBox, bandH: number): string {
   const u = worldBox.w;
   const round = (v: number) => Math.round(v);
-  const pad = u * 0.01; // outer margin from the canvas corner
-  const inner = u * 0.008; // panel inner padding
-  const rowH = u * 0.016;
-  const headerH = rowH * 1.35;
-  const fontSize = u * 0.0098;
-  const titleFont = u * 0.0115;
-  const swatch = u * 0.011;
-  const panelW = u * 0.23;
-  const panelH = headerH + rows.length * rowH + inner;
-  const x0 = worldBox.x + pad;
-  const y0 = worldBox.y + pad;
-  const swCx = x0 + inner + swatch / 2;
-  const labelX = x0 + inner + swatch + u * 0.006;
-  const countX = x0 + panelW - inner;
+  const padX = u * 0.012;
+  const top = worldBox.y - bandH;
+  const x = worldBox.x + padX;
+  const titleFont = u * 0.022;
+  const subFont = u * 0.011;
+  const titleBaseline = top + bandH * 0.5;
+  const subBaseline = top + bandH * 0.82;
+  const parts: string[] = [];
+  parts.push(
+    `<text x="${round(x)}" y="${round(titleBaseline)}" fill="#f1f5f9" font-family="monospace" font-weight="700" font-size="${round(titleFont)}">${xmlEscape(title)}</text>`,
+  );
+  if (subtitle) {
+    parts.push(
+      `<text x="${round(x)}" y="${round(subBaseline)}" fill="#94a3b8" font-family="monospace" font-size="${round(subFont)}">${xmlEscape(subtitle)}</text>`,
+    );
+  }
+  parts.push(
+    `<line x1="${round(worldBox.x)}" y1="${round(worldBox.y)}" x2="${round(worldBox.x + worldBox.w)}" y2="${round(worldBox.y)}" stroke="#3a4658" stroke-width="${round(u * 0.0006)}"/>`,
+  );
+  return parts.join('');
+}
+
+interface LegendLayout {
+  cols: number;
+  cellW: number;
+  rowH: number;
+  swatch: number;
+  fontSize: number;
+  padX: number;
+  headerH: number;
+  bandH: number;
+}
+
+/** Lay legend entries out in as many columns as fit across the width, so the
+ *  bottom band stays short. Height follows from the resulting row count. */
+function computeLegendLayout(count: number, u: number): LegendLayout {
+  const padX = u * 0.012;
+  const fontSize = u * 0.012;
+  const rowH = u * 0.023;
+  const swatch = u * 0.014;
+  const headerH = u * 0.024;
+  const targetCellW = u * 0.3; // room for the longest label + count
+  const avail = u - 2 * padX;
+  const cols = Math.max(1, Math.min(count, Math.floor(avail / targetCellW) || 1));
+  const rows = Math.ceil(count / cols);
+  const bandH = headerH + rows * rowH + u * 0.016;
+  return { cols, cellW: avail / cols, rowH, swatch, fontSize, padX, headerH, bandH };
+}
+
+/** Legend band, drawn below the map. Entries flow left-to-right, top-to-bottom
+ *  across `layout.cols` columns; each shows a shape swatch matching the plot,
+ *  its label, and its (level-filtered) count. */
+function buildLegendBandMarkup(rows: LegendRow[], worldBox: ViewBox, layout: LegendLayout): string {
+  const u = worldBox.w;
+  const round = (v: number) => Math.round(v);
+  const bandTop = worldBox.y + worldBox.h;
+  const left = worldBox.x + layout.padX;
 
   const parts: string[] = [];
   parts.push(
-    `<rect x="${round(x0)}" y="${round(y0)}" width="${round(panelW)}" height="${round(panelH)}" rx="${round(u * 0.006)}" fill="#0d1117" fill-opacity="0.85" stroke="#3a4658" stroke-width="${round(u * 0.0006)}"/>`,
+    `<line x1="${round(worldBox.x)}" y1="${round(bandTop)}" x2="${round(worldBox.x + worldBox.w)}" y2="${round(bandTop)}" stroke="#3a4658" stroke-width="${round(u * 0.0006)}"/>`,
   );
   parts.push(
-    `<text x="${round(x0 + inner)}" y="${round(y0 + headerH * 0.68)}" fill="#e5e7eb" font-family="monospace" font-weight="700" font-size="${round(titleFont)}">Legend</text>`,
+    `<text x="${round(left)}" y="${round(bandTop + layout.headerH * 0.75)}" fill="#e5e7eb" font-family="monospace" font-weight="700" font-size="${round(u * 0.012)}">LEGEND</text>`,
   );
   rows.forEach((r, i) => {
-    const cy = y0 + headerH + i * rowH + rowH / 2;
-    const baseline = cy + fontSize * 0.35;
-    parts.push(legendSwatch(r.shape, r.color, swCx, cy, swatch));
+    const col = i % layout.cols;
+    const row = Math.floor(i / layout.cols);
+    const cellX = left + col * layout.cellW;
+    const cy = bandTop + layout.headerH + row * layout.rowH + layout.rowH / 2;
+    const baseline = cy + layout.fontSize * 0.35;
+    const swCx = cellX + layout.swatch / 2;
+    const labelX = cellX + layout.swatch + u * 0.006;
+    const countX = cellX + layout.cellW - u * 0.014;
+    parts.push(legendSwatch(r.shape, r.color, swCx, cy, layout.swatch));
     parts.push(
-      `<text x="${round(labelX)}" y="${round(baseline)}" fill="#e5e7eb" font-family="monospace" font-size="${round(fontSize)}">${xmlEscape(r.label)}</text>`,
+      `<text x="${round(labelX)}" y="${round(baseline)}" fill="#e5e7eb" font-family="monospace" font-size="${round(layout.fontSize)}">${xmlEscape(r.label)}</text>`,
     );
     parts.push(
-      `<text x="${round(countX)}" y="${round(baseline)}" fill="#94a3b8" font-family="monospace" font-size="${round(fontSize)}" text-anchor="end">${fmt(r.count)}</text>`,
+      `<text x="${round(countX)}" y="${round(baseline)}" fill="#94a3b8" font-family="monospace" font-size="${round(layout.fontSize)}" text-anchor="end">${fmt(r.count)}</text>`,
     );
   });
-  return `<g>${parts.join('')}</g>`;
+  return parts.join('');
 }
 
 /** Raw SVG markup for a single legend swatch, matching the on-map shape for
@@ -1226,25 +1307,17 @@ function legendSwatch(shape: CategoryShape, color: string, cx: number, cy: numbe
   }
 }
 
-function exportSVG(
-  svg: SVGSVGElement | null,
-  summary: ParsedSaveSummary,
-  worldBox: ViewBox,
-  legend?: LegendRow[] | null,
-) {
+function exportSVG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox, legend: LegendRow[]) {
   if (!svg) return;
-  const { text } = buildStandaloneSVG(svg, worldBox, legend);
+  const { title, subtitle } = deriveExportTitle(summary, worldBox);
+  const { text } = buildStandaloneSVG(svg, worldBox, { legend, title, subtitle });
   download(text, `${safeFilename(summary)}.svg`, 'image/svg+xml');
 }
 
-async function exportPNG(
-  svg: SVGSVGElement | null,
-  summary: ParsedSaveSummary,
-  worldBox: ViewBox,
-  legend?: LegendRow[] | null,
-) {
+async function exportPNG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox, legend: LegendRow[]) {
   if (!svg) return;
-  const { text, aspect } = buildStandaloneSVG(svg, worldBox, legend);
-  const blob = await rasterizeSvgToPng(text, { aspect, background: '#0d1117' });
+  const { title, subtitle } = deriveExportTitle(summary, worldBox);
+  const { text, aspect } = buildStandaloneSVG(svg, worldBox, { legend, title, subtitle });
+  const blob = await rasterizeSvgToPng(text, { aspect, background: EXPORT_BG });
   download(blob, `${safeFilename(summary)}.png`, 'image/png');
 }

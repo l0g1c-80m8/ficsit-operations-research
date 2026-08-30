@@ -22,17 +22,21 @@ export default function SavePage() {
   const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
-    const h = loadHistory();
-    setHistory(h);
-    // Auto-load the most recent upload on first visit so the page isn't empty.
-    if (h.length > 0 && !summary) setSummary(h[0].summary);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    void loadHistory().then((h) => {
+      if (cancelled) return;
+      setHistory(h);
+      // Auto-load the most recent upload on first visit so the page isn't empty.
+      if (h.length > 0) setSummary((cur) => cur ?? h[0].summary);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const onParsed = (s: ParsedSaveSummary, file: File) => {
-    appendHistory(file, s);
-    setHistory(loadHistory());
+  const onParsed = async (s: ParsedSaveSummary, file: File) => {
     setSummary(s);
+    setHistory(await appendHistory(file, s));
   };
 
   const onLoadFromHistory = (entry: SaveHistoryEntry) => {
@@ -40,21 +44,21 @@ export default function SavePage() {
     setShowHistory(false);
   };
 
-  const onDeleteFromHistory = (id: string) => {
-    const next = removeHistory(id);
+  const onDeleteFromHistory = async (id: string) => {
+    const next = await removeHistory(id);
     setHistory(next);
     if (next.length === 0) setSummary(null);
   };
 
-  const onClearAll = () => {
+  const onClearAll = async () => {
     if (!confirm('Delete all saved file history? This cannot be undone.')) return;
-    clearHistory();
+    await clearHistory();
     setHistory([]);
     setSummary(null);
   };
 
-  const onExport = () => {
-    const blob = new Blob([exportHistoryJSON()], { type: 'application/json' });
+  const onExport = async () => {
+    const blob = new Blob([await exportHistoryJSON()], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -66,7 +70,7 @@ export default function SavePage() {
   const onImport = async (file: File) => {
     try {
       const text = await file.text();
-      const { merged } = importHistoryJSON(text);
+      const { merged } = await importHistoryJSON(text);
       setHistory(merged);
     } catch (e) {
       alert(`Import failed: ${(e as Error).message}`);

@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   ImageDown,
+  List,
   Maximize2,
   Minimize2,
   ZoomIn,
@@ -16,7 +17,7 @@ import {
 import { cn, fmt } from '@/lib/utils';
 import type { NetworkEdge, ParsedSaveSummary, PlacedActor, SaveCategory } from '@/lib/save/types';
 import { CATEGORY_META, type CategoryMeta, type CategoryShape } from '@/lib/save/categorize';
-import { actorOnFloor, detectFloors, type DetectedFloor } from '@/lib/save/floors';
+import { actorOnLevel, detectLevels, type ElevationLevel } from '@/lib/save/elevation';
 import { buildProximityEdges } from '@/lib/save/network';
 import { download } from '@/lib/solver/graph-export';
 import { DEFAULT_PNG_WIDTH, rasterizeSvgToPng } from '@/lib/utils/svg-export';
@@ -74,8 +75,10 @@ export function Topograph({
   );
   const [visible, setVisible] = useState(initialVisible);
   const [fullscreen, setFullscreen] = useState(false);
-  // null = all floors visible; otherwise the DetectedFloor.idx to isolate.
-  const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
+  // null = all levels visible; otherwise the ElevationLevel.idx to isolate.
+  const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
+  // When on, exported SVG/PNG images embed a category legend panel.
+  const [includeLegend, setIncludeLegend] = useState(false);
   // Background mode: 'grid' is the default (visible 100 m / 1 km gridlines on
   // a dark base). 'terrain' adds a procedural biome backdrop underneath the
   // grid — soft colored blobs roughly placed where Satisfactory's major
@@ -83,15 +86,15 @@ export function Topograph({
   const [bgMode, setBgMode] = useState<BgMode>('grid');
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const floors = useMemo(() => detectFloors(summary.actors), [summary]);
-  // Drop the selection if the new save doesn't have that floor (e.g. switching
+  const levels = useMemo(() => detectLevels(summary.actors), [summary]);
+  // Drop the selection if the new save doesn't have that level (e.g. switching
   // history entries). Cheap to recompute on every render.
   useEffect(() => {
-    if (selectedFloor != null && !floors.some((f) => f.idx === selectedFloor)) {
-      setSelectedFloor(null);
+    if (selectedLevel != null && !levels.some((l) => l.idx === selectedLevel)) {
+      setSelectedLevel(null);
     }
-  }, [floors, selectedFloor]);
-  const activeFloor = selectedFloor == null ? null : floors.find((f) => f.idx === selectedFloor) ?? null;
+  }, [levels, selectedLevel]);
+  const activeLevel = selectedLevel == null ? null : levels.find((l) => l.idx === selectedLevel) ?? null;
 
   // Compute world bounds once per summary. Add a small border so things on the
   // edge don't sit flush against the canvas frame.
@@ -128,11 +131,11 @@ export function Topograph({
   // through to summary.categoryCounts which already covers everything.
   const { grouped, filteredCounts } = useMemo(() => {
     const map = new Map<SaveCategory, PlacedActor[]>();
-    const counts = activeFloor
+    const counts = activeLevel
       ? ({} as Partial<Record<SaveCategory, number>>)
       : null;
     for (const a of summary.actors) {
-      if (activeFloor && !actorOnFloor(a, activeFloor)) continue;
+      if (activeLevel && !actorOnLevel(a, activeLevel)) continue;
       const arr = map.get(a.category);
       if (arr) arr.push(a);
       else map.set(a.category, [a]);
@@ -142,7 +145,7 @@ export function Topograph({
       grouped: map,
       filteredCounts: counts as Record<SaveCategory, number> | null,
     };
-  }, [summary, activeFloor]);
+  }, [summary, activeLevel]);
 
   /** Per-category index of explicit edges read from the save. Used by
    *  `NetworkLayer` to draw real belts/pipes/rail/hypertubes/power-lines
@@ -152,9 +155,9 @@ export function Topograph({
   const connectionsByCategory = useMemo(() => {
     const map = new Map<SaveCategory, NetworkEdge[]>();
     for (const e of summary.connections ?? []) {
-      if (activeFloor) {
-        const aOn = e.az >= activeFloor.zMin && e.az <= activeFloor.zMax;
-        const bOn = e.bz >= activeFloor.zMin && e.bz <= activeFloor.zMax;
+      if (activeLevel) {
+        const aOn = e.az >= activeLevel.zMin && e.az < activeLevel.zMax;
+        const bOn = e.bz >= activeLevel.zMin && e.bz < activeLevel.zMax;
         if (!aOn || !bOn) continue;
       }
       const arr = map.get(e.category);
@@ -162,7 +165,7 @@ export function Topograph({
       else map.set(e.category, [e]);
     }
     return map;
-  }, [summary, activeFloor]);
+  }, [summary, activeLevel]);
 
   const screenToWorld = useCallback((e: { clientX: number; clientY: number }) => {
     const svg = svgRef.current;
@@ -291,6 +294,18 @@ export function Topograph({
   const zoomPct = Math.round((worldBox.w / viewBox.w) * 100);
   const isDragging = dragRef.current !== null;
 
+  // Legend rows for image export: the currently-visible categories with the
+  // same counts LayerControls shows (level-filtered when a level is selected).
+  const legendCounts = filteredCounts ?? summary.categoryCounts;
+  const legendRows: LegendRow[] = ORDERED_CATEGORIES.filter(
+    (c) => visible[c] && (legendCounts[c] ?? 0) > 0,
+  ).map((c) => ({
+    label: CATEGORY_META[c].label,
+    color: CATEGORY_META[c].color,
+    shape: CATEGORY_META[c].shape,
+    count: legendCounts[c] ?? 0,
+  }));
+
   return (
     <Card className={cn('min-w-0', fullscreen && 'fixed inset-4 z-50 flex flex-col overflow-hidden')}>
       <CardHeader
@@ -298,10 +313,19 @@ export function Topograph({
         subtitle={`${fmt(summary.actors.length)} actors · ${fmt(worldBox.w / 100, 0)}m × ${fmt(worldBox.h / 100, 0)}m footprint`}
         right={
           <div className="flex items-center gap-1">
-            <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary, worldBox)} title="Download as SVG">
+            <Button
+              variant={includeLegend ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setIncludeLegend((v) => !v)}
+              title="Toggle: embed the category legend in exported SVG/PNG images"
+              aria-pressed={includeLegend}
+            >
+              <List className="h-3.5 w-3.5" /> Legend
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => exportSVG(svgRef.current, summary, worldBox, includeLegend ? legendRows : null)} title="Download as SVG">
               <Download className="h-3.5 w-3.5" /> SVG
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox)} title="Download as PNG (≈ 12 K wide, 1.5× supersampled, high-quality downsample)">
+            <Button variant="secondary" size="sm" onClick={() => exportPNG(svgRef.current, summary, worldBox, includeLegend ? legendRows : null)} title="Download as PNG (≈ 12 K wide, 1.5× supersampled, high-quality downsample)">
               <ImageDown className="h-3.5 w-3.5" /> PNG
             </Button>
             <span className="mx-1 h-5 w-px bg-ficsit-border" />
@@ -325,11 +349,11 @@ export function Topograph({
       />
       <CardBody className={cn('space-y-3', fullscreen && 'flex min-h-0 min-w-0 flex-1 flex-col')}>
         <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-stretch">
-          {floors.length > 0 && (
-            <FloorChips
-              floors={floors}
-              selected={selectedFloor}
-              onSelect={setSelectedFloor}
+          {levels.length > 0 && (
+            <LevelChips
+              levels={levels}
+              selected={selectedLevel}
+              onSelect={setSelectedLevel}
             />
           )}
           <BgChips mode={bgMode} onSelect={setBgMode} />
@@ -386,16 +410,16 @@ export function Topograph({
           <CursorHUD cursor={cursor} />
         </div>
 
-        {floors.length >= 2 && (
+        {levels.length >= 2 && (
           <SideElevation
             actors={summary.actors}
             xMin={viewBox.x}
             xMax={viewBox.x + viewBox.w}
             zMin={zBounds.zMin}
             zMax={zBounds.zMax}
-            floors={floors}
-            selected={selectedFloor}
-            onSelect={setSelectedFloor}
+            levels={levels}
+            selected={selectedLevel}
+            onSelect={setSelectedLevel}
           />
         )}
 
@@ -491,7 +515,7 @@ function LayerControls({
     <div className="rounded-md border border-ficsit-border bg-ficsit-panel2/40 p-2">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-ficsit-subtle">
-          Layers{filtered ? <span className="ml-1 text-ficsit-accent">(filtered to selected floor)</span> : null}
+          Layers{filtered ? <span className="ml-1 text-ficsit-accent">(filtered to selected level)</span> : null}
         </span>
         <div className="flex gap-1">
           <Button variant="ghost" size="sm" onClick={() => onAll(true)}>
@@ -705,39 +729,39 @@ function BgChips({ mode, onSelect }: { mode: BgMode; onSelect: (m: BgMode) => vo
   );
 }
 
-function FloorChips({
-  floors,
+function LevelChips({
+  levels,
   selected,
   onSelect,
 }: {
-  floors: DetectedFloor[];
+  levels: ElevationLevel[];
   selected: number | null;
   onSelect: (idx: number | null) => void;
 }) {
   return (
     <div className="flex items-center gap-1.5 overflow-x-auto rounded-md border border-ficsit-border bg-ficsit-panel2/40 px-2 py-1.5">
-      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-widest text-ficsit-subtle">Floors</span>
-      <FloorChip
+      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-widest text-ficsit-subtle">Elevation</span>
+      <LevelChip
         active={selected == null}
         label="All"
         onClick={() => onSelect(null)}
-        title={`Show every floor (${floors.length} detected)`}
+        title={`Show every elevation level (${levels.length} detected)`}
       />
-      {floors.map((f) => (
-        <FloorChip
-          key={f.idx}
-          active={selected === f.idx}
-          label={`F${f.idx}`}
-          sub={`${fmt(f.z / 100, 1)} m`}
-          onClick={() => onSelect(selected === f.idx ? null : f.idx)}
-          title={`Floor ${f.idx} · Z ≈ ${fmt(f.z / 100, 1)} m · ${fmt(f.count)} foundations`}
+      {levels.map((l) => (
+        <LevelChip
+          key={l.idx}
+          active={selected === l.idx}
+          label={`L${l.idx}`}
+          sub={`${fmt(l.zMin / 100, 0)} m`}
+          onClick={() => onSelect(selected === l.idx ? null : l.idx)}
+          title={`Level ${l.idx} · ${fmt(l.zMin / 100, 0)}–${fmt(l.zMax / 100, 0)} m · ${fmt(l.count)} foundations`}
         />
       ))}
     </div>
   );
 }
 
-function FloorChip({
+function LevelChip({
   active,
   label,
   sub,
@@ -778,7 +802,7 @@ function SideElevation({
   xMax,
   zMin,
   zMax,
-  floors,
+  levels,
   selected,
   onSelect,
 }: {
@@ -787,7 +811,7 @@ function SideElevation({
   xMax: number;
   zMin: number;
   zMax: number;
-  floors: DetectedFloor[];
+  levels: ElevationLevel[];
   selected: number | null;
   onSelect: (idx: number | null) => void;
 }) {
@@ -799,7 +823,7 @@ function SideElevation({
 
   const handleClick = (e: React.MouseEvent<SVGSVGElement>) => {
     const target = e.target as SVGElement;
-    const bandIdx = target.dataset?.floorIdx ? Number(target.dataset.floorIdx) : NaN;
+    const bandIdx = target.dataset?.levelIdx ? Number(target.dataset.levelIdx) : NaN;
     if (Number.isFinite(bandIdx)) {
       onSelect(selected === bandIdx ? null : bandIdx);
     } else {
@@ -811,7 +835,7 @@ function SideElevation({
     <div className="rounded-md border border-ficsit-border bg-ficsit-bg">
       <div className="flex items-center justify-between border-b border-ficsit-border px-2 py-1 text-[10px] text-ficsit-subtle">
         <span>
-          <strong className="text-ficsit-text">Elevation</strong> · looking south (X-Z) · click a floor band to slice
+          <strong className="text-ficsit-text">Elevation</strong> · looking south (X-Z) · click a level band to slice
         </span>
         <span>
           {fmt((zMax - zMin) / 100, 1)} m vertical · {fmt((xMax - xMin) / 100, 0)} m of current view
@@ -828,18 +852,18 @@ function SideElevation({
       >
         <rect x={xMin} y={-zMax} width={w} height={h} fill="#0d1117" />
 
-        {/* Floor bands. Inactive bands paint a subtle stripe; active band gets
-            a colored fill + accent outline. Each band has a data-floor-idx so
-            clicks resolve cleanly without coordinate math. */}
-        {floors.map((f) => {
-          const active = selected === f.idx;
-          const bandH = f.zMax - f.zMin;
+        {/* Elevation bands. Inactive bands paint a subtle stripe; active band
+            gets a colored fill + accent outline. Each band has a data-level-idx
+            so clicks resolve cleanly without coordinate math. */}
+        {levels.map((l) => {
+          const active = selected === l.idx;
+          const bandH = l.zMax - l.zMin;
           return (
-            <g key={f.idx}>
+            <g key={l.idx}>
               <rect
-                data-floor-idx={f.idx}
+                data-level-idx={l.idx}
                 x={xMin}
-                y={-f.zMax}
+                y={-l.zMax}
                 width={w}
                 height={bandH}
                 fill={active ? '#facc1522' : '#1f2937'}
@@ -849,21 +873,21 @@ function SideElevation({
               <line
                 x1={xMin}
                 x2={xMin + w}
-                y1={-f.z}
-                y2={-f.z}
+                y1={-l.z}
+                y2={-l.z}
                 stroke={active ? '#facc15' : '#475569'}
                 strokeWidth={Math.max(10, w * 0.0002)}
                 strokeDasharray={active ? undefined : `${w * 0.004} ${w * 0.004}`}
               />
               <text
                 x={xMin + w * 0.005}
-                y={-f.z - bandH * 0.5}
+                y={-l.z - bandH * 0.5}
                 fill={active ? '#facc15' : '#94a3b8'}
                 fontSize={h * 0.08}
                 fontFamily="monospace"
                 style={{ pointerEvents: 'none' }}
               >
-                F{f.idx} · {fmt(f.z / 100, 1)} m
+                L{l.idx} · {fmt(l.zMin / 100, 0)} m
               </text>
             </g>
           );
@@ -1088,6 +1112,14 @@ function ActorMark({
 
 /* ─────────────────── SVG / PNG export ─────────────────── */
 
+/** One category row in the exported legend panel. */
+interface LegendRow {
+  label: string;
+  color: string;
+  shape: CategoryShape;
+  count: number;
+}
+
 function safeFilename(summary: ParsedSaveSummary): string {
   const session = (summary.header?.sessionName ?? 'save').replace(/[^A-Za-z0-9-]+/g, '_').slice(0, 40);
   return `ficsit-topograph-${session || 'save'}-${Date.now()}`;
@@ -1097,8 +1129,13 @@ function safeFilename(summary: ParsedSaveSummary): string {
  *  the exported file always shows everything (regardless of current zoom).
  *  The width hint is set to `DEFAULT_PNG_WIDTH` so viewers that don't auto-
  *  scale (e.g. some browsers loading the .svg directly) still render at a
- *  high default size. */
-function buildStandaloneSVG(live: SVGSVGElement, worldBox: ViewBox): { text: string; aspect: number } {
+ *  high default size. When `legend` is supplied, a category legend panel is
+ *  spliced into the top-left corner (world coords, so it scales with export). */
+function buildStandaloneSVG(
+  live: SVGSVGElement,
+  worldBox: ViewBox,
+  legend?: LegendRow[] | null,
+): { text: string; aspect: number } {
   const clone = live.cloneNode(true) as SVGSVGElement;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
@@ -1106,18 +1143,108 @@ function buildStandaloneSVG(live: SVGSVGElement, worldBox: ViewBox): { text: str
   const aspect = worldBox.h / Math.max(worldBox.w, 1);
   clone.setAttribute('width', String(DEFAULT_PNG_WIDTH));
   clone.setAttribute('height', String(Math.round(DEFAULT_PNG_WIDTH * aspect)));
-  return { text: new XMLSerializer().serializeToString(clone), aspect };
+  let text = new XMLSerializer().serializeToString(clone);
+  if (legend && legend.length > 0) {
+    const markup = buildLegendMarkup(legend, worldBox);
+    const close = text.lastIndexOf('</svg>');
+    if (close >= 0) text = text.slice(0, close) + markup + text.slice(close);
+  }
+  return { text, aspect };
 }
 
-function exportSVG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox) {
+/** Escape a label for inclusion in raw SVG/XML text. */
+function xmlEscape(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/** Build a legend `<g>` (raw SVG markup) sized in world units relative to
+ *  `worldBox.w`, so it renders at a legible size regardless of the export
+ *  resolution. Anchored to the top-left of the world bounds. */
+function buildLegendMarkup(rows: LegendRow[], worldBox: ViewBox): string {
+  const u = worldBox.w;
+  const round = (v: number) => Math.round(v);
+  const pad = u * 0.01; // outer margin from the canvas corner
+  const inner = u * 0.008; // panel inner padding
+  const rowH = u * 0.016;
+  const headerH = rowH * 1.35;
+  const fontSize = u * 0.0098;
+  const titleFont = u * 0.0115;
+  const swatch = u * 0.011;
+  const panelW = u * 0.23;
+  const panelH = headerH + rows.length * rowH + inner;
+  const x0 = worldBox.x + pad;
+  const y0 = worldBox.y + pad;
+  const swCx = x0 + inner + swatch / 2;
+  const labelX = x0 + inner + swatch + u * 0.006;
+  const countX = x0 + panelW - inner;
+
+  const parts: string[] = [];
+  parts.push(
+    `<rect x="${round(x0)}" y="${round(y0)}" width="${round(panelW)}" height="${round(panelH)}" rx="${round(u * 0.006)}" fill="#0d1117" fill-opacity="0.85" stroke="#3a4658" stroke-width="${round(u * 0.0006)}"/>`,
+  );
+  parts.push(
+    `<text x="${round(x0 + inner)}" y="${round(y0 + headerH * 0.68)}" fill="#e5e7eb" font-family="monospace" font-weight="700" font-size="${round(titleFont)}">Legend</text>`,
+  );
+  rows.forEach((r, i) => {
+    const cy = y0 + headerH + i * rowH + rowH / 2;
+    const baseline = cy + fontSize * 0.35;
+    parts.push(legendSwatch(r.shape, r.color, swCx, cy, swatch));
+    parts.push(
+      `<text x="${round(labelX)}" y="${round(baseline)}" fill="#e5e7eb" font-family="monospace" font-size="${round(fontSize)}">${xmlEscape(r.label)}</text>`,
+    );
+    parts.push(
+      `<text x="${round(countX)}" y="${round(baseline)}" fill="#94a3b8" font-family="monospace" font-size="${round(fontSize)}" text-anchor="end">${fmt(r.count)}</text>`,
+    );
+  });
+  return `<g>${parts.join('')}</g>`;
+}
+
+/** Raw SVG markup for a single legend swatch, matching the on-map shape for
+ *  that category so the legend reads the same as the plot. */
+function legendSwatch(shape: CategoryShape, color: string, cx: number, cy: number, s: number): string {
+  const round = (v: number) => Math.round(v);
+  const h = s / 2;
+  switch (shape) {
+    case 'dot':
+      return `<circle cx="${round(cx)}" cy="${round(cy)}" r="${round(h)}" fill="${color}"/>`;
+    case 'triangle':
+      return `<polygon points="${round(cx)},${round(cy - h)} ${round(cx + h * 0.9)},${round(cy + h * 0.75)} ${round(cx - h * 0.9)},${round(cy + h * 0.75)}" fill="${color}"/>`;
+    case 'line':
+      return `<rect x="${round(cx - h)}" y="${round(cy - s * 0.16)}" width="${round(s)}" height="${round(s * 0.32)}" rx="${round(s * 0.1)}" fill="${color}"/>`;
+    case 'network':
+      return (
+        `<line x1="${round(cx - h)}" y1="${round(cy + h * 0.5)}" x2="${round(cx + h)}" y2="${round(cy - h * 0.5)}" stroke="${color}" stroke-width="${round(s * 0.2)}" stroke-linecap="round"/>` +
+        `<circle cx="${round(cx - h)}" cy="${round(cy + h * 0.5)}" r="${round(s * 0.2)}" fill="${color}"/>` +
+        `<circle cx="${round(cx + h)}" cy="${round(cy - h * 0.5)}" r="${round(s * 0.2)}" fill="${color}"/>`
+      );
+    case 'rect':
+    default:
+      return `<rect x="${round(cx - h)}" y="${round(cy - h)}" width="${round(s)}" height="${round(s)}" rx="${round(s * 0.12)}" fill="${color}"/>`;
+  }
+}
+
+function exportSVG(
+  svg: SVGSVGElement | null,
+  summary: ParsedSaveSummary,
+  worldBox: ViewBox,
+  legend?: LegendRow[] | null,
+) {
   if (!svg) return;
-  const { text } = buildStandaloneSVG(svg, worldBox);
+  const { text } = buildStandaloneSVG(svg, worldBox, legend);
   download(text, `${safeFilename(summary)}.svg`, 'image/svg+xml');
 }
 
-async function exportPNG(svg: SVGSVGElement | null, summary: ParsedSaveSummary, worldBox: ViewBox) {
+async function exportPNG(
+  svg: SVGSVGElement | null,
+  summary: ParsedSaveSummary,
+  worldBox: ViewBox,
+  legend?: LegendRow[] | null,
+) {
   if (!svg) return;
-  const { text, aspect } = buildStandaloneSVG(svg, worldBox);
+  const { text, aspect } = buildStandaloneSVG(svg, worldBox, legend);
   const blob = await rasterizeSvgToPng(text, { aspect, background: '#0d1117' });
   download(blob, `${safeFilename(summary)}.png`, 'image/png');
 }

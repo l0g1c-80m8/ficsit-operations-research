@@ -140,6 +140,32 @@ export default function CalculatorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, history.length]);
 
+  // Deep-link entry: `/calculator?targets=Desc_Foo_C:60,Desc_Bar_C:15`.
+  // /progression links here with the parts it still owes. Consumed once per
+  // mount, then stripped from the URL so a reload doesn't clobber whatever the
+  // user has since typed.
+  useEffect(() => {
+    if (!data || typeof window === 'undefined') return;
+    const raw = new URLSearchParams(window.location.search).get('targets');
+    if (!raw) return;
+    const targets: CalcRow[] = raw
+      .split(',')
+      .map((pair) => {
+        const [item, rate] = pair.split(':');
+        return { item: item?.trim() ?? '', rate: Number(rate) };
+      })
+      // Ignore anything that isn't a real item class — a stale or hand-edited
+      // link shouldn't produce empty rows the solver then chokes on.
+      .filter((t) => t.item in data.items && Number.isFinite(t.rate) && t.rate > 0)
+      .map((t, i) => ({ id: `tgt-link-${i}`, item: t.item, rate: t.rate }));
+    if (targets.length === 0) return;
+    const next: CalcInputs = { ...DEFAULT_INPUTS, ...inputs, targets };
+    setInputs(next);
+    run(next);
+    window.history.replaceState(null, '', window.location.pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   function deleteEntry(id: string) {
     setHistory((h) => h.filter((e) => e.id !== id));
   }

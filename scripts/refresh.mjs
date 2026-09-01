@@ -1,12 +1,14 @@
 // Refresh the full cached dataset:
 //   1. Re-fetch the community Docs.json into /tmp/sat-data.json
 //   2. Re-prune into public/data/satisfactory.json
-//   3. Re-fetch any missing icons (existing PNGs kept). Pass --force-icons to
+//   3. Re-fetch world markers into public/data/map-markers.json (for /atlas)
+//   4. Re-fetch any missing icons (existing PNGs kept). Pass --force-icons to
 //      re-download every icon.
 //
 // Usage:
-//   node scripts/refresh.mjs              # fetch data, prune, fetch missing icons
+//   node scripts/refresh.mjs              # fetch data, prune, markers, missing icons
 //   node scripts/refresh.mjs --force-icons # also force-redownload every icon
+//   node scripts/refresh.mjs --no-markers  # skip the world-marker fetch
 
 import { execSync } from 'node:child_process';
 import path from 'node:path';
@@ -18,6 +20,7 @@ const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 
 const forceIcons = process.argv.includes('--force-icons');
+const skipMarkers = process.argv.includes('--no-markers');
 const useFicsmas = process.argv.includes('--ficsmas');
 const useLegacy = process.argv.includes('--legacy-u8');
 
@@ -72,6 +75,19 @@ if (dataSize < 500_000) {
 console.log(`  ✓ /tmp/sat-data.json (${(dataSize / 1024).toFixed(1)} KB)`);
 
 run('node scripts/prune-data.mjs', 'Pruning to public/data/satisfactory.json');
+
+// World markers for /atlas come from a different upstream than Docs.json, so a
+// failure here shouldn't sink the whole refresh — the committed
+// map-markers.json stays valid until the next successful fetch.
+if (skipMarkers) {
+  console.log('\n▶ Skipping world markers (--no-markers)');
+} else {
+  try {
+    run('node scripts/fetch-map-markers.mjs', 'Fetching world markers → public/data/map-markers.json');
+  } catch {
+    console.warn('  ! World-marker fetch failed; keeping the committed map-markers.json.');
+  }
+}
 
 run(`node scripts/fetch-icons.mjs${forceIcons ? ' --force' : ''}`, forceIcons ? 'Re-fetching ALL icons' : 'Fetching missing icons');
 

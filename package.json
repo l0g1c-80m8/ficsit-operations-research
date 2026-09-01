@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "data": "node scripts/prune-data.mjs",
+    "map-markers": "node scripts/fetch-map-markers.mjs",
     "icons": "node scripts/fetch-icons.mjs",
     "icons:force": "node scripts/fetch-icons.mjs --force",
     "icons:missing": "node scripts/fetch-icons.mjs --only-missing",

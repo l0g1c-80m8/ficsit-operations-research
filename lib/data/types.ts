@@ -42,6 +42,26 @@ export interface SatRecipe {
   maxPower?: number;
 }
 
+/** A progression schematic: a HUB Milestone, a MAM research node, or a Hard
+ *  Drive alternate. Drives the /progression tracker — `cost` is the parts a
+ *  pioneer delivers to unlock it. Space Elevator phases are separate
+ *  (lib/progression/phases.ts) because greeny's dump omits them. */
+export interface SatSchematic {
+  className: ClassName;
+  name: string;
+  /** milestone | mam | alternate | other — same taxonomy as RecipeUnlockType. */
+  kind: RecipeUnlockType;
+  /** in-game tech tier (0–9); 0 for tier-less research. */
+  tier: number;
+  /** research/build time in seconds. */
+  time: number;
+  cost: RecipeIO[];
+  /** recipe class names this schematic unlocks. */
+  unlockRecipes: ClassName[];
+  /** schematic class names that must be completed first (often empty in the dump). */
+  requiredSchematics: ClassName[];
+}
+
 export interface SatBuilding {
   className: ClassName;
   slug: string;
@@ -93,6 +113,7 @@ export interface SatData {
   items: Record<ClassName, SatItem>;
   buildings: Record<ClassName, SatBuilding>;
   recipes: SatRecipe[];
+  schematics: SatSchematic[];
   resources: Record<ClassName, SatResource>;
   generators: SatGenerator[];
   miners: SatMiner[];

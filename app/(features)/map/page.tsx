@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { PageHeader } from '@/components/shell/AppShell';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -77,8 +78,12 @@ export default function MapPage() {
                 </div>
               </div>
               <p className="pt-2 text-xs text-ficsit-subtle">
-                Toggle these layers inside the iframe. A native Leaflet implementation with custom tiles is on the
-                planner backlog.
+                Toggle these layers inside the iframe. For a native, offline-capable version of the
+                node and collectible layers — in the same coordinate space as the Save viewer — see{' '}
+                <Link href="/atlas" className="text-ficsit-accent hover:underline">
+                  World Atlas
+                </Link>
+                .
               </p>
             </CardBody>
           </Card>

@@ -66,6 +66,27 @@ export interface NetworkEdge {
   bz: number;
 }
 
+/** Tech progression read out of the save's manager actors (schematic manager +
+ *  game-phase manager). Every field is optional: an unrecognized save layout
+ *  yields an empty object rather than an error, and the /progression view shows
+ *  an explanatory empty state. */
+export interface SaveProgression {
+  /** Simplified schematic class names the pioneer has completed, e.g.
+   *  `Schematic_3-1_C` (milestone) or `Research_Quartz_4_1_C` (MAM). Matches
+   *  `SatSchematic.className` in the pruned dataset. */
+  purchasedSchematics: string[];
+  /** Schematics started but not yet paid off, if the save exposes them. */
+  activeSchematics?: string[];
+  /** 1-based Project Assembly phase currently in progress. 6 means every phase
+   *  is done. Undefined when the game-phase manager couldn't be read. */
+  currentPhase?: number;
+  /** Parts already delivered toward `currentPhase`. */
+  phasePaidOff?: { item: string; amount: number }[];
+  /** Which manager actors were found — surfaced in the UI so a save that
+   *  parses but yields nothing can be diagnosed. */
+  sources: { schematicManager: boolean; gamePhaseManager: boolean };
+}
+
 export interface ParsedSaveSummary {
   header: SaveHeaderInfo | null;
   actorCount: number;
@@ -81,6 +102,8 @@ export interface ParsedSaveSummary {
    *  spline-based actors (rails/hypertubes/pipes/non-chain belts) and from
    *  `PowerLineSpecialProperties` source/target on power-line actors. */
   connections: NetworkEdge[];
+  /** Milestone / MAM / Space Elevator completion, when the save exposes it. */
+  progression?: SaveProgression;
 }
 
 /** A persisted upload entry in the save history (localStorage). */
@@ -94,4 +117,8 @@ export interface SaveHistoryEntry {
 
 // v2: category taxonomy split (extractor/generator/power_storage, train,
 // pioneer, decoration, fluid_storage); old v1 entries are ignored on load.
-export const SAVE_HISTORY_KEY = 'ficsit.save.history.v2';
+// v3: ParsedSaveSummary gained `progression`. Note this key only tags the JSON
+// export and the legacy localStorage migration — history itself lives in
+// IndexedDB (see history.ts), so pre-v3 entries survive a bump. They simply
+// have no `progression`, and /progression tells the user to re-upload.
+export const SAVE_HISTORY_KEY = 'ficsit.save.history.v3';

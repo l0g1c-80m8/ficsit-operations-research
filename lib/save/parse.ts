@@ -6,6 +6,7 @@
 
 import type { NetworkEdge, ParsedSaveSummary, PlacedActor, SaveCategory, SaveHeaderInfo } from './types';
 import { categorize, quaternionToYawDeg } from './categorize';
+import { extractProgression, isProgressionManager } from './progression';
 
 const MAX_ACTORS_FOR_VIZ = 80000;
 
@@ -64,6 +65,11 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
   // Buffered power-line references whose endpoints we'll resolve once every
   // actor has been seen — order in the save file isn't guaranteed.
   const pendingPowerLines: { srcInst?: string; tgtInst?: string; srcWorld?: { x: number; y: number; z: number }; tgtWorld?: { x: number; y: number; z: number } }[] = [];
+  // Schematic / game-phase manager singletons. Collected during the same walk
+  // and decoded afterwards — see lib/save/progression.ts. Matched outside the
+  // isSaveEntity branch because these carry no transform and can be serialized
+  // as components rather than entities.
+  const progressionManagers: { typePath?: string; properties?: Record<string, unknown> }[] = [];
 
   const levels = save.levels ?? {};
   for (const lvl of Object.values(levels)) {
@@ -71,6 +77,10 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
       const typePath = (obj as { typePath?: string }).typePath ?? 'Unknown';
       const className = simplifyClass(typePath);
       counts.set(className, (counts.get(className) ?? 0) + 1);
+
+      if (isProgressionManager(typePath)) {
+        progressionManagers.push(obj as { typePath?: string; properties?: Record<string, unknown> });
+      }
 
       if (isSaveEntity(obj)) {
         actorCount++;
@@ -159,6 +169,7 @@ export async function parseSaveFile(file: File): Promise<ParsedSaveSummary> {
     categoryCounts,
     bbox: actors.length > 0 ? { minX, maxX, minY, maxY } : null,
     connections,
+    progression: extractProgression(progressionManagers),
   };
 }
 

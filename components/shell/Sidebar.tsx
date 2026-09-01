@@ -10,7 +10,9 @@ import {
   ClipboardList,
   ChevronsLeft,
   ChevronsRight,
+  Compass,
   Factory,
+  Trophy,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -24,9 +26,14 @@ const sections: { title: string; items: { href: string; label: string; icon: Rea
   {
     title: 'World',
     items: [
+      { href: '/atlas', label: 'Atlas', icon: Compass },
       { href: '/map', label: 'Map', icon: MapIcon },
       { href: '/save', label: 'Save File', icon: SaveIcon },
     ],
+  },
+  {
+    title: 'Progression',
+    items: [{ href: '/progression', label: 'Tech Tree', icon: Trophy }],
   },
   {
     title: 'Production',

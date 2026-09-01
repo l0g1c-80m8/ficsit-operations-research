@@ -1,6 +1,14 @@
 'use client';
 import Link from 'next/link';
-import { Calculator, BookOpen, Map as MapIcon, Save as SaveIcon, ClipboardList } from 'lucide-react';
+import {
+  Calculator,
+  BookOpen,
+  Compass,
+  Map as MapIcon,
+  Save as SaveIcon,
+  ClipboardList,
+  Trophy,
+} from 'lucide-react';
 import { PageHeader } from '@/components/shell/AppShell';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -9,9 +17,21 @@ import { fmt } from '@/lib/utils';
 
 const tiles = [
   {
+    href: '/atlas',
+    title: 'World Atlas',
+    desc: 'Every node, well, geyser, slug and crash site — in save coordinates.',
+    icon: Compass,
+  },
+  {
+    href: '/progression',
+    title: 'Progression',
+    desc: 'Milestones, MAM, and Space Elevator phases read from your save.',
+    icon: Trophy,
+  },
+  {
     href: '/map',
-    title: 'World Map',
-    desc: 'Resource nodes, slugs, hard drives — with filters.',
+    title: 'Interactive Map',
+    desc: 'The full community map, embedded with all its filter controls.',
     icon: MapIcon,
   },
   {

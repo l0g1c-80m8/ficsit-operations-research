@@ -30,6 +30,32 @@ for (const k of Object.keys(src.resources)) usedItems.add(k);
 for (const g of Object.values(src.generators)) {
   for (const f of g.fuel ?? []) usedItems.add(f);
 }
+// Schematic costs pull in things no machine recipe ever touches — foraged
+// collectibles (Paleberry, Beryl Nut, Bacon Agaric), alien artifacts
+// (Somersloop = Desc_WAT1_C, Mercer Sphere = Desc_WAT2_C), and the Object
+// Scanner. 26 MAM research nodes are priced in these, so /progression renders
+// raw class names and blank icons without them.
+for (const s of Object.values(src.schematics)) {
+  for (const c of s.cost ?? []) usedItems.add(c.item);
+}
+
+// Items referenced by schematic costs but absent from the upstream item table.
+// Same escape hatch as SUPPORT_BUILDINGS below: the dump is incomplete, and
+// without an entry the UI shows a bare class name. Keep this list minimal and
+// re-check it after a dataset bump.
+const SYNTHETIC_ITEMS = {
+  Desc_HardDrive_C: {
+    className: 'Desc_HardDrive_C',
+    slug: 'hard-drive',
+    name: 'Hard Drive',
+    description: 'Recovered from a crash site. Spend at the MAM to unlock an alternate recipe.',
+    sinkPoints: 0,
+    stackSize: 100,
+    energyValue: 0,
+    liquid: false,
+    fluidColor: { r: 0, g: 0, b: 0, a: 0 },
+  },
+};
 
 const items = {};
 for (const [k, v] of Object.entries(src.items)) {
@@ -45,6 +71,9 @@ for (const [k, v] of Object.entries(src.items)) {
     liquid: !!v.liquid,
     fluidColor: v.fluidColor,
   };
+}
+for (const [k, v] of Object.entries(SYNTHETIC_ITEMS)) {
+  if (usedItems.has(k) && !items[k]) items[k] = v;
 }
 
 const usedBuildings = new Set();
@@ -145,6 +174,27 @@ const recipes = machineRecipes.map((r) => {
   return base;
 });
 
+// Progression schematics — Milestones (HUB), MAM research, and Hard Drive
+// alternates. These drive the /progression tracker: their `cost` arrays are the
+// parts a pioneer must deliver to advance. Sink-shop rows (EST_ResourceSink) and
+// pure cosmetics (EST_Customization) are dropped — they aren't progression.
+// Space Elevator / Project Assembly phases are NOT in greeny's dump; they're
+// hardcoded in lib/progression/phases.ts.
+const SCHEM_KEEP = new Set(['EST_Milestone', 'EST_Tutorial', 'EST_MAM', 'EST_Alternate', 'EST_HardDrive']);
+const schematics = Object.values(src.schematics)
+  .filter((s) => SCHEM_KEEP.has(s.type))
+  .map((s) => ({
+    className: s.className,
+    name: s.name,
+    // milestone | mam | alternate | other — same taxonomy as recipe.unlockType
+    kind: classifyUnlock(s.type),
+    tier: s.tier ?? 0,
+    time: s.time ?? 0,
+    cost: (s.cost ?? []).map((c) => ({ item: c.item, amount: c.amount })),
+    unlockRecipes: s.unlock?.recipes ?? [],
+    requiredSchematics: s.requiredSchematics ?? [],
+  }));
+
 const resources = {};
 for (const [k, v] of Object.entries(src.resources)) {
   resources[k] = v;
@@ -183,6 +233,7 @@ const out = {
   items,
   buildings,
   recipes,
+  schematics,
   resources,
   generators,
   miners,
@@ -196,5 +247,5 @@ fs.writeFileSync(path.join(root, 'public', 'data', 'version.json'), JSON.stringi
 const bytes = fs.statSync(outPath).size;
 console.log(`Wrote ${outPath}`);
 console.log(`  buildId=${buildId}`);
-console.log(`  items=${Object.keys(items).length} buildings=${Object.keys(buildings).length} recipes=${recipes.length} resources=${Object.keys(resources).length} generators=${generators.length} miners=${miners.length}`);
+console.log(`  items=${Object.keys(items).length} buildings=${Object.keys(buildings).length} recipes=${recipes.length} schematics=${schematics.length} resources=${Object.keys(resources).length} generators=${generators.length} miners=${miners.length}`);
 console.log(`  size=${(bytes / 1024).toFixed(1)} KB`);

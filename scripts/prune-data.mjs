@@ -153,6 +153,26 @@ for (const [k, v] of Object.entries(src.resources)) {
 const generators = Object.values(src.generators);
 const miners = Object.values(src.miners);
 
+// The solver's includePowerProduction mode reads `generators[].fuels` for each
+// fuel's supplemental input (coal generators drink water) and byproduct
+// (nuclear plants emit waste). Only greeny's `dev` dump carries that array —
+// prune from master/data1.0.json and every generator silently loses it, which
+// makes the power-balance LP infeasible with no obvious cause. Fail loudly
+// instead; see the DATA_URL note in refresh.mjs.
+const noFuels = generators.filter((g) => !Array.isArray(g.fuels)).map((g) => g.className);
+if (noFuels.length > 0) {
+  console.error(
+    `\nERROR: ${noFuels.length}/${generators.length} generators are missing the detailed \`fuels\` array:\n` +
+      `  ${noFuels.join(', ')}\n\n` +
+      `/tmp/sat-data.json came from a dump that omits it. Re-fetch from the dev branch:\n` +
+      `  curl -L -o /tmp/sat-data.json \\\n` +
+      `    https://raw.githubusercontent.com/greeny/SatisfactoryTools/dev/data/data.json\n` +
+      `(or just run \`npm run refresh\`, which uses the right source). Refusing to write a\n` +
+      `dataset that would break power-production planning.\n`,
+  );
+  process.exit(1);
+}
+
 // Stamp every prune with a build identifier so the browser knows when the data
 // changed. The loader appends this to the URL as ?v=… to force a refetch.
 const buildId = `${new Date().toISOString().replace(/[:.]/g, '-')}-r${recipes.length}-b${Object.keys(buildings).length}`;

@@ -21,12 +21,20 @@ const forceIcons = process.argv.includes('--force-icons');
 const useFicsmas = process.argv.includes('--ficsmas');
 const useLegacy = process.argv.includes('--legacy-u8');
 
-// Greeny's repo keeps separate dumps for U8 vs 1.0 vs Ficsmas. Default to 1.0.
+// Greeny's repo keeps separate dumps for U8 vs 1.0 vs Ficsmas.
+//
+// The default is the `dev` branch's data.json, NOT master/data1.0.json. Only
+// the dev dump carries the detailed `generators[].fuels` records
+// (supplementalItem / byproduct / byproductAmount). The solver's
+// includePowerProduction mode needs those to model a coal generator's water
+// draw and a nuclear plant's waste output — prune from a master dump and the
+// power-balance LP goes infeasible. prune-data.mjs hard-fails on that now, so
+// this can't regress quietly.
 const DATA_URL = useLegacy
   ? 'https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data.json'
   : useFicsmas
     ? 'https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data1.0-ficsmas.json'
-    : 'https://raw.githubusercontent.com/greeny/SatisfactoryTools/master/data/data1.0.json';
+    : 'https://raw.githubusercontent.com/greeny/SatisfactoryTools/dev/data/data.json';
 console.log(`Source: ${DATA_URL}`);
 
 function run(cmd, label) {

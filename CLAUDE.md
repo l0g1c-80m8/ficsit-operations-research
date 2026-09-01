@@ -134,6 +134,15 @@ curl -L -o /tmp/sat-data.json \
   https://raw.githubusercontent.com/greeny/SatisfactoryTools/dev/data/data.json
 ```
 
+**Use the `dev` branch dump — not `master/data1.0.json`.** Only `dev/data/data.json`
+carries the detailed `generators[].fuels` records (`supplementalItem`,
+`byproduct`, `byproductAmount`). The solver's `includePowerProduction` mode
+needs them to model a coal generator's water draw and a nuclear plant's waste;
+prune from a master dump and every generator silently loses the array, which
+makes the power-balance LP report `infeasible` with no visible cause. The
+counts in the prune output look completely normal when this happens.
+`prune-data.mjs` now hard-fails on it, and `refresh.mjs` defaults to `dev`.
+
 ## Solver notes (`lib/solver/factory-solver.ts`)
 
 - LP formulation: per-item flow-balance equalities, supply caps, target output

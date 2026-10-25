@@ -92,17 +92,37 @@ export function Topograph({
     return { x: minX - pad, y: minY - pad, w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad };
   }, [summary]);
 
-  /** World Z bounds for the side elevation view (summary.bbox is X/Y only). */
+  /** World Z bounds for the side elevation view (summary.bbox is X/Y only).
+   *
+   *  Fit the vertical axis to where building actually happens rather than the
+   *  raw actor Z extremes. A handful of high-flying vehicles, a dropped item
+   *  that fell through the world, or a lone hypertube apex would otherwise
+   *  stretch the axis so far that every real floor collapses into a sliver at
+   *  the bottom — which is exactly the "mostly empty" elevation view we're
+   *  fixing. The range is the union of the detected foundation levels (already
+   *  de-noised by MIN_FOUNDATIONS_PER_LEVEL) and the 2nd–98th percentile of
+   *  all actor Z (so machines perched above the top foundation still fit while
+   *  outliers get clipped), then padded. */
   const zBounds = useMemo(() => {
     if (summary.actors.length === 0) return { zMin: 0, zMax: 1000 };
-    let zMin = Infinity, zMax = -Infinity;
-    for (const a of summary.actors) {
-      if (a.z < zMin) zMin = a.z;
-      if (a.z > zMax) zMax = a.z;
+    // Percentile clip of all actor Z — robust to a few extreme outliers.
+    const zs = summary.actors.map((a) => a.z).sort((a, b) => a - b);
+    const pct = (p: number) => zs[clamp(Math.round(p * (zs.length - 1)), 0, zs.length - 1)];
+    let zMin = pct(0.02);
+    let zMax = pct(0.98);
+    // Always include every detected foundation level so no floor is clipped.
+    if (levels.length > 0) {
+      zMin = Math.min(zMin, levels[0].zMin);
+      zMax = Math.max(zMax, levels[levels.length - 1].zMax);
     }
-    const pad = 400;
+    const pad = Math.max(400, (zMax - zMin) * 0.08);
     return { zMin: zMin - pad, zMax: zMax + pad };
-  }, [summary]);
+  }, [summary, levels]);
+
+  // Datum for every height the UI shows: the floor of the lowest built level,
+  // so heights read as "above lowest level" rather than raw world Z (which is
+  // measured from the map origin and means nothing to a player).
+  const groundZ = levels.length > 0 ? levels[0].zMin : zBounds.zMin;
 
   const [viewBox, setViewBox] = useState<ViewBox>(worldBox);
   // Reset view whenever a new save is loaded.
@@ -307,7 +327,18 @@ export function Topograph({
     if (!atFull) flushSync(() => setViewBox(worldBox));
     try {
       const { title, subtitle } = deriveExportTitle(summary, worldBox);
-      return buildStandaloneSVG(svgRef.current!, worldBox, { legend: legendRows, title, subtitle });
+      // Elevation strip is only meaningful with >= 2 levels — same gate as the
+      // on-screen SideElevation. Below that there's no vertical story to tell.
+      const elevation =
+        levels.length >= 2
+          ? { actors: summary.actors, levels, groundZ, selected: selectedLevel, visible, zBounds }
+          : null;
+      return buildStandaloneSVG(svgRef.current!, worldBox, {
+        legend: legendRows,
+        title,
+        subtitle,
+        elevation,
+      });
     } finally {
       if (!atFull) flushSync(() => setViewBox(prev));
     }
@@ -332,10 +363,10 @@ export function Topograph({
         subtitle={`${fmt(summary.actors.length)} actors · ${fmt(worldBox.w / 100, 0)}m × ${fmt(worldBox.h / 100, 0)}m footprint`}
         right={
           <div className="flex items-center gap-1">
-            <Button variant="secondary" size="sm" onClick={onExportSVG} title="Download as SVG — full map, titled, with a legend band">
+            <Button variant="secondary" size="sm" onClick={onExportSVG} title="Download as SVG — full map, titled, with an elevation strip and legend band">
               <Download className="h-3.5 w-3.5" /> SVG
             </Button>
-            <Button variant="secondary" size="sm" onClick={onExportPNG} title="Download as PNG (≈ 12 K wide) — full map, titled, with a legend band">
+            <Button variant="secondary" size="sm" onClick={onExportPNG} title="Download as PNG (≈ 12 K wide) — full map, titled, with an elevation strip and legend band">
               <ImageDown className="h-3.5 w-3.5" /> PNG
             </Button>
             <span className="mx-1 h-5 w-px bg-ficsit-border" />
@@ -362,6 +393,7 @@ export function Topograph({
           {levels.length > 0 && (
             <LevelChips
               levels={levels}
+              groundZ={groundZ}
               selected={selectedLevel}
               onSelect={setSelectedLevel}
             />
@@ -428,6 +460,7 @@ export function Topograph({
             zMin={zBounds.zMin}
             zMax={zBounds.zMax}
             levels={levels}
+            groundZ={groundZ}
             selected={selectedLevel}
             onSelect={setSelectedLevel}
           />
@@ -572,10 +605,12 @@ function LayerControls({
 
 function LevelChips({
   levels,
+  groundZ,
   selected,
   onSelect,
 }: {
   levels: ElevationLevel[];
+  groundZ: number;
   selected: number | null;
   onSelect: (idx: number | null) => void;
 }) {
@@ -586,20 +621,52 @@ function LevelChips({
         active={selected == null}
         label="All"
         onClick={() => onSelect(null)}
-        title={`Show every elevation level (${levels.length} detected)`}
+        title={`Show every elevation level (${levels.length} detected) · heights above lowest level`}
       />
       {levels.map((l) => (
         <LevelChip
           key={l.idx}
           active={selected === l.idx}
           label={`L${l.idx}`}
-          sub={`${fmt(l.zMin / 100, 0)} m`}
+          sub={fmtHeight(l.zMin, groundZ)}
           onClick={() => onSelect(selected === l.idx ? null : l.idx)}
-          title={`Level ${l.idx} · ${fmt(l.zMin / 100, 0)}–${fmt(l.zMax / 100, 0)} m · ${fmt(l.count)} foundations`}
+          title={`Level ${l.idx} · ${fmtHeight(l.zMin, groundZ)}–${fmtHeight(l.zMax, groundZ)} above lowest level · ${fmt(l.count)} foundations`}
         />
       ))}
     </div>
   );
+}
+
+/** Format a world Z as a height relative to a datum, in metres. Absolute UE
+ *  world Z is meaningless to a player (it's measured from the map origin, not
+ *  the ground), so every height the UI shows is "above the lowest built level":
+ *  the ground floor reads 0 m and upper floors read "+N m". */
+function fmtHeight(z: number, groundZ: number): string {
+  const m = Math.round((z - groundZ) / 100);
+  return m > 0 ? `+${m} m` : `${m} m`;
+}
+
+/** De-collide a set of label centres along one axis so closely-spaced levels
+ *  don't pile into an unreadable stack. Nudges them apart to at least `gap`,
+ *  preserves their order, and clamps into [min, max]. A down-sweep enforces
+ *  the gap top-to-bottom; an up-sweep pulls the overflow back and clamps both
+ *  edges. Input and output are in the same unit (px on screen, world units in
+ *  the export). Returned centres line up with the input index order. */
+function spreadLabels(desired: number[], gap: number, min: number, max: number): number[] {
+  const order = desired.map((c, i) => ({ c, i })).sort((a, b) => a.c - b.c);
+  let prev = -Infinity;
+  for (const o of order) {
+    o.c = Math.max(o.c, prev + gap);
+    prev = o.c;
+  }
+  prev = Infinity;
+  for (let k = order.length - 1; k >= 0; k--) {
+    order[k].c = Math.max(min, Math.min(order[k].c, prev - gap, max));
+    prev = order[k].c;
+  }
+  const out = new Array<number>(desired.length);
+  for (const o of order) out[o.i] = o.c;
+  return out;
 }
 
 function LevelChip({
@@ -652,6 +719,7 @@ function SideElevation({
   zMin,
   zMax,
   levels,
+  groundZ,
   selected,
   onSelect,
 }: {
@@ -661,6 +729,7 @@ function SideElevation({
   zMin: number;
   zMax: number;
   levels: ElevationLevel[];
+  groundZ: number;
   selected: number | null;
   onSelect: (idx: number | null) => void;
 }) {
@@ -689,11 +758,27 @@ function SideElevation({
   const topFrac = (z: number) => (zMax - z) / (zMax - zMin);
   const toggle = (idx: number) => onSelect(selected === idx ? null : idx);
 
+  // Vertical placement (px from the top of the strip) for the floating level
+  // buttons on the right. Anchoring each to its exact Z makes closely-spaced
+  // levels pile into an overlapping, unclickable stack and clips the top/bottom
+  // ones past the strip edge. We nudge them apart to a minimum gap and clamp
+  // inside the strip: a two-pass sweep (down, then up) keeps them in Z order,
+  // non-overlapping, and fully on-screen — collapsing to an even spread when
+  // there are more levels than fit. The dots/lanes in the SVG still sit at the
+  // true Z; only the labels are de-collided.
+  const LABEL_H = 20; // approx button height, px
+  const labelTops = useMemo(() => {
+    const H = SIDE_ELEVATION_H;
+    const desired = levels.map((l) => ((zMax - l.z) / Math.max(1, zMax - zMin)) * H);
+    const spread = spreadLabels(desired, LABEL_H + 2, LABEL_H / 2, H - LABEL_H / 2);
+    return new Map(levels.map((l, i) => [l.idx, spread[i]]));
+  }, [levels, zMin, zMax]);
+
   return (
     <div className="rounded-md border border-ficsit-border bg-ficsit-bg">
       <div className="flex items-center justify-between border-b border-ficsit-border px-2 py-1 text-[10px] text-ficsit-subtle">
         <span>
-          <strong className="text-ficsit-text">Elevation</strong> · looking south (X-Z) · click a level to slice
+          <strong className="text-ficsit-text">Elevation</strong> · looking south (X-Z) · heights above lowest level · click a level to slice
         </span>
         <span>
           {fmt((zMax - zMin) / 100, 1)} m vertical · {levels.length} level{levels.length === 1 ? '' : 's'} · {fmt((xMax - xMin) / 100, 0)} m of current view
@@ -712,7 +797,11 @@ function SideElevation({
           <rect x={xMin} y={-zMax} width={w} height={h} fill="#0d1117" />
 
           {/* Level lanes: alternating shade for legibility; the selected lane
-              gets an accent wash + outline. Actor dots (below) sit on top. */}
+              gets an accent wash + outline. Each lane is a click target that
+              slices the map to that elevation — stopPropagation keeps the click
+              from bubbling to the SVG's "clear selection" handler. Clicking the
+              empty gaps between lanes still clears. Actor dots (below) sit on
+              top but are pointer-transparent so they don't eat lane clicks. */}
           {levels.map((l) => {
             const active = selected === l.idx;
             const bandH = l.zMax - l.zMin;
@@ -726,6 +815,11 @@ function SideElevation({
                 fill={active ? '#facc151f' : l.idx % 2 === 0 ? '#161d2b' : '#1b2537'}
                 stroke={active ? '#facc15' : 'transparent'}
                 strokeWidth={Math.max(20, w * 0.0006)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggle(l.idx);
+                }}
+                style={{ cursor: 'pointer' }}
               />
             );
           })}
@@ -754,8 +848,8 @@ function SideElevation({
 
         {/* Crisp HTML overlay: elevation axis + clickable level labels. */}
         <div className="pointer-events-none absolute inset-0 font-mono text-[10px]">
-          <span className="absolute left-1 top-0.5 text-ficsit-subtle">{fmt(zMax / 100, 0)} m</span>
-          <span className="absolute bottom-0.5 left-1 text-ficsit-subtle">{fmt(zMin / 100, 0)} m</span>
+          <span className="absolute left-1 top-0.5 text-ficsit-subtle">{fmtHeight(zMax, groundZ)}</span>
+          <span className="absolute bottom-0.5 left-1 text-ficsit-subtle">{fmtHeight(zMin, groundZ)}</span>
           {levels.map((l) => {
             const active = selected === l.idx;
             return (
@@ -763,19 +857,19 @@ function SideElevation({
                 key={l.idx}
                 type="button"
                 onClick={() => toggle(l.idx)}
-                title={`Level ${l.idx} · ${fmt(l.zMin / 100, 0)}–${fmt(l.zMax / 100, 0)} m · ${fmt(perLevelCount.get(l.idx) ?? 0)} actors`}
+                title={`Level ${l.idx} · ${fmtHeight(l.zMin, groundZ)}–${fmtHeight(l.zMax, groundZ)} above lowest level · ${fmt(perLevelCount.get(l.idx) ?? 0)} actors`}
                 className={cn(
                   'pointer-events-auto absolute right-1 flex -translate-y-1/2 items-center gap-1 rounded border px-1.5 py-0.5 transition-colors',
                   active
                     ? 'border-ficsit-accent/70 bg-ficsit-accent/20 text-ficsit-accent'
                     : 'border-ficsit-border/70 bg-ficsit-bg/70 text-ficsit-subtle backdrop-blur hover:bg-ficsit-panel2',
                 )}
-                style={{ top: `${topFrac(l.z) * 100}%` }}
+                style={{ top: labelTops.get(l.idx) ?? topFrac(l.z) * SIDE_ELEVATION_H }}
               >
                 <span className={cn('font-semibold', active ? 'text-ficsit-accent' : 'text-ficsit-text')}>
                   L{l.idx}
                 </span>
-                <span>{fmt(l.zMin / 100, 0)} m</span>
+                <span>{fmtHeight(l.zMin, groundZ)}</span>
                 <span className="opacity-70">· {fmt(perLevelCount.get(l.idx) ?? 0)}</span>
               </button>
             );
@@ -1012,10 +1106,28 @@ function deriveExportTitle(summary: ParsedSaveSummary, worldBox: ViewBox): { tit
  *  title band above the map and a legend band below it — neither overlaps the
  *  plotted actors. All band geometry is expressed in world units relative to
  *  `worldBox.w`, so it renders at a legible, resolution-independent size. */
+/** Everything the exported elevation strip needs. Mirrors the on-screen
+ *  SideElevation but drawn with a *uniform* scale (so crisp SVG `<text>` works
+ *  here, unlike the live view's non-uniform stretch + HTML overlay). */
+interface ElevationExport {
+  actors: PlacedActor[];
+  levels: ElevationLevel[];
+  /** Datum for relative height labels — the lowest built level's floor. */
+  groundZ: number;
+  selected: number | null;
+  visible: Record<SaveCategory, boolean>;
+  zBounds: { zMin: number; zMax: number };
+}
+
 function buildStandaloneSVG(
   live: SVGSVGElement,
   worldBox: ViewBox,
-  opts: { legend?: LegendRow[] | null; title?: string | null; subtitle?: string | null } = {},
+  opts: {
+    legend?: LegendRow[] | null;
+    title?: string | null;
+    subtitle?: string | null;
+    elevation?: ElevationExport | null;
+  } = {},
 ): { text: string; aspect: number } {
   const clone = live.cloneNode(true) as SVGSVGElement;
   clone.setAttribute('xmlns', SVG_NS);
@@ -1024,16 +1136,33 @@ function buildStandaloneSVG(
   const u = worldBox.w;
   const legend = opts.legend && opts.legend.length > 0 ? opts.legend : null;
   const title = opts.title?.trim() ? opts.title.trim() : null;
+  const elevation = opts.elevation && opts.elevation.levels.length >= 2 ? opts.elevation : null;
 
   const titleBandH = title ? u * 0.06 : 0;
+  const elevBandH = elevation ? u * 0.16 : 0;
   const legendLayout = legend ? computeLegendLayout(legend.length, u) : null;
   const legendBandH = legendLayout ? legendLayout.bandH : 0;
 
-  // Extend the world viewBox: title band sits above worldBox.y, legend below.
+  // Breathing room (dark gutter) between the stacked bands below the map so the
+  // elevation strip and legend don't butt up against the map edge — flush bands
+  // read as one confusing block. Only applied around the elevation strip; maps
+  // without one keep the legend flush with the map as before.
+  const gap = elevation ? u * 0.025 : 0;
+  // Offsets measured from the bottom of the map (worldBox.y + worldBox.h).
+  const elevTop = worldBox.y + worldBox.h + gap;
+  const legendYOffset = elevation ? gap + elevBandH + gap : 0;
+
+  // Extend the world viewBox vertically. Stacking order, top to bottom:
+  //   title band (above worldBox.y) · map · [gap] · elevation strip · [gap] ·
+  //   legend band.
   const vbX = worldBox.x;
   const vbY = worldBox.y - titleBandH;
   const vbW = worldBox.w;
-  const vbH = worldBox.h + titleBandH + legendBandH;
+  const vbH =
+    worldBox.h +
+    titleBandH +
+    (elevation ? gap + elevBandH : 0) +
+    (legendLayout ? (elevation ? gap : 0) + legendBandH : 0);
   clone.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
   const aspect = vbH / Math.max(vbW, 1);
   clone.setAttribute('width', String(DEFAULT_PNG_WIDTH));
@@ -1041,7 +1170,7 @@ function buildStandaloneSVG(
 
   // Opaque backdrop over the *extended* canvas so the bands aren't transparent
   // when the raw SVG is viewed directly. Prepended → sits behind the map.
-  if (titleBandH > 0 || legendBandH > 0) {
+  if (titleBandH > 0 || elevBandH > 0 || legendBandH > 0) {
     const bg = document.createElementNS(SVG_NS, 'rect');
     bg.setAttribute('x', String(Math.round(vbX)));
     bg.setAttribute('y', String(Math.round(vbY)));
@@ -1052,7 +1181,12 @@ function buildStandaloneSVG(
   }
 
   if (title) appendMarkup(clone, buildTitleMarkup(title, opts.subtitle ?? '', worldBox, titleBandH));
-  if (legend && legendLayout) appendMarkup(clone, buildLegendBandMarkup(legend, worldBox, legendLayout));
+  if (elevation) {
+    appendMarkup(clone, buildElevationBandMarkup(elevation, worldBox, elevTop, elevBandH));
+  }
+  if (legend && legendLayout) {
+    appendMarkup(clone, buildLegendBandMarkup(legend, worldBox, legendLayout, legendYOffset));
+  }
 
   return { text: new XMLSerializer().serializeToString(clone), aspect };
 }
@@ -1127,10 +1261,15 @@ function computeLegendLayout(count: number, u: number): LegendLayout {
 /** Legend band, drawn below the map. Entries flow left-to-right, top-to-bottom
  *  across `layout.cols` columns; each shows a shape swatch matching the plot,
  *  its label, and its (level-filtered) count. */
-function buildLegendBandMarkup(rows: LegendRow[], worldBox: ViewBox, layout: LegendLayout): string {
+function buildLegendBandMarkup(
+  rows: LegendRow[],
+  worldBox: ViewBox,
+  layout: LegendLayout,
+  yOffset = 0,
+): string {
   const u = worldBox.w;
   const round = (v: number) => Math.round(v);
-  const bandTop = worldBox.y + worldBox.h;
+  const bandTop = worldBox.y + worldBox.h + yOffset;
   const left = worldBox.x + layout.padX;
 
   const parts: string[] = [];
@@ -1182,5 +1321,106 @@ function legendSwatch(shape: CategoryShape, color: string, cx: number, cy: numbe
     default:
       return `<rect x="${round(cx - h)}" y="${round(cy - h)}" width="${round(s)}" height="${round(s)}" rx="${round(s * 0.12)}" fill="${color}"/>`;
   }
+}
+
+/** Elevation strip for the export, drawn below the map on a *uniform* scale.
+ *  World X maps 1:1 with the export's X (so a column in the strip sits directly
+ *  under its footprint on the map); world Z is linearly compressed into the
+ *  band. Level lanes get an alternating shade with the selected lane accented,
+ *  and each visible category's actors collapse into one dot path — the same
+ *  vertical read as the on-screen SideElevation, but with crisp SVG text since
+ *  there's no non-uniform stretch here. */
+function buildElevationBandMarkup(
+  elev: ElevationExport,
+  worldBox: ViewBox,
+  bandTop: number,
+  bandH: number,
+): string {
+  const { actors, levels, groundZ, selected, visible, zBounds } = elev;
+  const u = worldBox.w;
+  const round = (v: number) => Math.round(v);
+  const left = worldBox.x;
+  const right = worldBox.x + worldBox.w;
+  const { zMin, zMax } = zBounds;
+  const span = Math.max(1, zMax - zMin);
+  // World Z → export Y inside the band (top = zMax, bottom = zMin).
+  const zToY = (z: number) => bandTop + ((zMax - z) / span) * bandH;
+
+  const parts: string[] = [];
+  // Hairline rule separating the map from the strip, then a dark band fill.
+  parts.push(
+    `<line x1="${round(left)}" y1="${round(bandTop)}" x2="${round(right)}" y2="${round(bandTop)}" stroke="#3a4658" stroke-width="${round(u * 0.0006)}"/>`,
+  );
+  parts.push(
+    `<rect x="${round(left)}" y="${round(bandTop)}" width="${round(worldBox.w)}" height="${round(bandH)}" fill="#0d1117"/>`,
+  );
+
+  // Level lanes — alternating shade; the selected lane gets an accent wash.
+  for (const l of levels) {
+    const active = selected === l.idx;
+    const y = zToY(l.zMax);
+    const laneH = ((l.zMax - l.zMin) / span) * bandH;
+    const fill = active ? '#facc151f' : l.idx % 2 === 0 ? '#161d2b' : '#1b2537';
+    const stroke = active ? ` stroke="#facc15" stroke-width="${round(u * 0.0008)}"` : '';
+    parts.push(
+      `<rect x="${round(left)}" y="${round(y)}" width="${round(worldBox.w)}" height="${round(laneH)}" fill="${fill}"${stroke}/>`,
+    );
+  }
+
+  // Actor scatter — one collapsed dot path per visible category.
+  const r = u * 0.0011;
+  for (const cat of ORDERED_CATEGORIES) {
+    if (!visible[cat]) continue;
+    const meta = CATEGORY_META[cat];
+    const dotR = cat === 'foundation' ? r * 0.6 : r;
+    let d = '';
+    for (const a of actors) {
+      if (a.category !== cat) continue;
+      d += `M${round(a.x)},${round(zToY(a.z))}m -${round(dotR)},0 a ${round(dotR)},${round(dotR)} 0 1,0 ${round(2 * dotR)},0 a ${round(dotR)},${round(dotR)} 0 1,0 -${round(2 * dotR)},0 `;
+    }
+    if (!d) continue;
+    const opacity = cat === 'foundation' ? 0.3 : Math.min(1, meta.opacity * 0.95);
+    parts.push(`<path d="${d.trim()}" fill="${meta.color}" opacity="${opacity}"/>`);
+  }
+
+  // Count actors per level for the lane labels.
+  const perLevel = new Map<number, number>();
+  for (const a of actors) {
+    for (const l of levels) {
+      if (a.z >= l.zMin && a.z < l.zMax) {
+        perLevel.set(l.idx, (perLevel.get(l.idx) ?? 0) + 1);
+        break;
+      }
+    }
+  }
+
+  // Header + right-aligned level labels. Heights are relative to the lowest
+  // built level (see fmtHeight). The labels are de-collided vertically so
+  // closely-stacked levels stay individually readable instead of printing on
+  // top of each other.
+  const padX = u * 0.014;
+  const headerFont = u * 0.014;
+  const labelFont = u * 0.013;
+  parts.push(
+    `<text x="${round(left + padX)}" y="${round(bandTop + headerFont * 1.5)}" fill="#e5e7eb" font-family="monospace" font-weight="700" font-size="${round(headerFont)}">ELEVATION · looking south · heights above lowest level</text>`,
+  );
+  // Reserve the top of the band for the header, then spread labels through the
+  // remaining height so none collide and none clip the band edges.
+  const trueY = levels.map((l) => zToY(l.z));
+  const spread = spreadLabels(
+    trueY,
+    labelFont * 1.6,
+    bandTop + headerFont * 2.4,
+    bandTop + bandH - labelFont,
+  );
+  levels.forEach((l, i) => {
+    const active = selected === l.idx;
+    const baseline = spread[i] + labelFont * 0.35;
+    parts.push(
+      `<text x="${round(right - padX)}" y="${round(baseline)}" fill="${active ? '#facc15' : '#cbd5e1'}" font-family="monospace" font-size="${round(labelFont)}" text-anchor="end">L${l.idx} · ${fmtHeight(l.zMin, groundZ)} · ${fmt(perLevel.get(l.idx) ?? 0)}</text>`,
+    );
+  });
+
+  return parts.join('');
 }
 
